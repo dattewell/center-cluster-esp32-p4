@@ -617,6 +617,16 @@ void gauge_timer(lv_timer_t * t) {
         static char buf[8];
         snprintf(buf, sizeof(buf), "%d", speed);
         lv_label_set_text(ui_label_mph_value, buf);
+
+        char afr_buf[12];
+        snprintf(afr_buf, sizeof(afr_buf), "%4.1f", g_gauge_data.afr);
+
+        char boost_buf[12];
+        snprintf(boost_buf, sizeof(boost_buf), "%4.1f", g_gauge_data.boost_psi);
+        //***Update afr and boost labels here, 
+        // example -> update_label_if_needed(ui_label_odometer_value, odo_buf, green_color);
+        // update_label_if_needed();
+        // update_label_if_needed();
     
     }
 
@@ -1118,6 +1128,9 @@ static void can_mapping_task(void *arg){
         // ---------- Gauge data ----------
         g_gauge_data.water_temp_f     = can_data.coolant_temp;
         g_gauge_data.oil_pressure_psi = can_data.oil_pressure;
+        g_gauge_data.afr = can_data.air_fuel_ratio;
+        g_gauge_data.boost_psi = can_data.boost;
+        
 
         // ---------- UART TX ----------
         if (now_ms - last_tx_ms >= 20){
