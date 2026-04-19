@@ -245,6 +245,7 @@ typedef struct {
     float fuel_level_pct;
     float afr;
     float boost_psi;
+    float fuel_comp;
 } gauge_data_t;
 
 static gauge_data_t g_gauge_data;
@@ -623,7 +624,11 @@ void gauge_timer(lv_timer_t * t) {
 
         char boost_buf[12];
         snprintf(boost_buf, sizeof(boost_buf), "%4.1f", g_gauge_data.boost_psi);
-        //***Update afr and boost labels here, 
+
+
+        char fuel_comp_buf[12];
+        snprintf(fuel_comp_buf, sizeof(fuel_comp_buf), "%4.1f", g_gauge_data.fuel_comp);
+        //***Update afr and boost and fuel_comp labels here, 
         // example -> update_label_if_needed(ui_label_odometer_value, odo_buf, green_color);
         // update_label_if_needed();
         // update_label_if_needed();
@@ -1130,6 +1135,7 @@ static void can_mapping_task(void *arg){
         g_gauge_data.oil_pressure_psi = can_data.oil_pressure;
         g_gauge_data.afr = can_data.air_fuel_ratio;
         g_gauge_data.boost_psi = can_data.boost;
+        g_gauge_data.fuel_comp = can_data.fuel_comp;
         
 
         // ---------- UART TX ----------
