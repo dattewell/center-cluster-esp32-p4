@@ -206,6 +206,15 @@ static int64_t boot_time_ms = 0;
 #define GEAR_SHIFT_LOCK_TIME    0.25f
 #define GEAR_SLIP_RPM_RATE      2200.0f
 
+
+/**
+This is setup for a JDM STi 6spd
+For your use case you would need to calculate a value for each gear using
+
+    RPM_per_MPH = (GearRatio × FinalDrive × 336) / TireDiameter 
+
+and add that to each below in the table.
+**/
 static const float gear_table[6] = {
     193.0f,  // 1
     126.0f,  // 2
