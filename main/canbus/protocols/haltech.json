@@ -189,6 +189,16 @@
       {"name":"fuel_temp","offset":4,"len":2,"scale":0.18,"offset_val":32,"endian":"big"},
       {"name":"oil_temp","offset":6,"len":2,"scale":0.18,"offset_val":32,"endian":"big"}
       ]
+    },
+
+    {
+      "id": "0x3E1",
+      "signals": [
+        {"name":"gearbox_oil_temp","offset":0,"len":2,"scale":0.1,"endian":"big"},
+        {"name":"diff_oil_temp","offset":2,"len":2,"scale":0.1,"endian":"big"},
+        {"name":"fuel_comp","offset":4,"len":2,"scale":0.1,"endian":"big"},
+        {"name":"air_temp_pre_ic","offset":6,"len":2,"scale":0.1,"endian":"big"}
+      ]
     }
 
   ]

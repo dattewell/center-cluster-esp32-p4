@@ -38,7 +38,11 @@ static float* signal_name_to_ptr(const char *name){
     if (!strcmp(name,"air_temp")) return &can_data.air_temp;
     if (!strcmp(name,"battery_voltage")) return &can_data.battery_voltage;
     if (!strcmp(name,"oil_pressure")) return &can_data.oil_pressure;
-
+    
+    //Haltech specific naming for air/fuel and boost.  Check your protocol for addition/different mapping
+    if (!strcmp(name,"wb1")) return &can_data.air_fuel_ratio;
+    if (!strcmp(name,"map")) return &can_data.boost;
+    if (!strcmp(name,"fuel_comp")) return &can_data.fuel_comp;
     return NULL;
 }
 

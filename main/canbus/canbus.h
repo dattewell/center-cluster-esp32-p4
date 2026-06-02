@@ -17,6 +17,9 @@ typedef struct{
     float air_temp;
     float battery_voltage;
     float oil_pressure;
+    float air_fuel_ratio;
+    float boost;
+    float fuel_comp
 } can_dash_data_t;
 
 
