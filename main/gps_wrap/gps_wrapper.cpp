@@ -4,8 +4,11 @@
 static TinyGPSPlus gps;
 
 extern "C" {
+// Thin C ABI around TinyGPS++ so the C application code can consume the C++
+// parser without knowing about C++ types or name mangling.
 
 void gps_encode_char(char c){
+    // Feed one raw NMEA byte from the UART stream into TinyGPS++.
     gps.encode(c);
 }
 
@@ -28,6 +31,8 @@ float gps_get_speed_mph(void){
    ======================= */
 
 bool gps_has_fix(void){
+    // Treat stale locations as no fix so the UI does not keep showing old data
+    // after GPS reception drops out.
     return gps.location.isValid() &&
            gps.location.age() < 2000;
 }
@@ -77,6 +82,7 @@ double gps_distance_between(double lat1,
                             double lon1,
                             double lat2,
                             double lon2){
+    // Reuse TinyGPS++'s distance helper for odometer increments between fixes.
     return TinyGPSPlus::distanceBetween(
         lat1,
         lon1,

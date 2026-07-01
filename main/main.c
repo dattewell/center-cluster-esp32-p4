@@ -30,7 +30,9 @@
 // =======================================================
 // SENSOR SOURCE CONFIG
 // =======================================================
-// for switching between analog or canbus reading
+// Build-time switch for the whole dash data path:
+// - ANALOG reads local ADC/GPS/tach inputs directly.
+// - CAN receives decoded ECU data and maps it into the same gauge_data_t model.
 #define SENSOR_SOURCE_ANALOG 0
 #define SENSOR_SOURCE_CAN    1
 
@@ -246,6 +248,9 @@ static const char *TAG_AFR = "AFR_SENSOR";
 //--------------------------------//
 
 //------------DATA_SENT_OUT---------//
+// Internal, display-friendly gauge model.  Every producer path writes these
+// engineering-unit values first, then the UART packet layer scales them to the
+// fixed-point protocol expected by the remote gauge display.
 typedef struct {
     float oil_temp_f;
     float water_temp_f;
@@ -260,6 +265,8 @@ typedef struct {
 static gauge_data_t g_gauge_data;
 
 
+// Wire payload sent after GAUGE_PKT_SOF and a sequence byte.
+// Values are multiplied by 10 to avoid sending floats over UART.
 typedef struct __attribute__((packed)) {
     uint16_t oil_temp;       // °F x10
     uint16_t water_temp;     // °F x10
@@ -299,7 +306,8 @@ static void init_label_styles(void){
 }
 
 static void update_label_if_needed(lv_obj_t *label, char *new_value, lv_color_t new_color) { 
-    // Only update text if changed 
+    // LVGL updates are relatively expensive.  Avoid invalidating widgets when
+    // the formatted value or color is unchanged.
     const char *old_text = lv_label_get_text(label); 
     if (strcmp(old_text, new_value) != 0) { 
         lv_label_set_text(label, new_value); 
@@ -322,6 +330,9 @@ static uint8_t clamp_u8(int val) {
 
 
 float fuel_pct_from_voltage(float v){
+    // Sender response is intentionally piecewise instead of a single straight
+    // line because the tank/sender geometry is non-linear, especially near
+    // empty where the display needs more useful resolution.
     const float V_FULL  = 0.06f;
     const float V_HALF  = 0.53f;
     const float V_25    = 0.845f;
@@ -354,6 +365,9 @@ float fuel_pct_from_voltage(float v){
 //-----------------------TEMP--------------------------//
 
 float read_temp_resistance(int raw){
+    // ADC measures the divided-down sender voltage.  Convert back through the
+    // input divider and then solve the pull-up/sensor divider for thermistor
+    // resistance before table interpolation.
 
     float adc_voltage = (raw / ADC_MAX) * ADC_VREF;
 
@@ -382,6 +396,8 @@ static inline float alphaForRPM(float rpmRaw) {
 }
 
 void IRAM_ATTR tachISR(void* arg) {
+    // Keep ISR work tiny: reject impossibly short periods, store the latest
+    // pulse interval in a rolling buffer, and let tach_task do the filtering.
     uint64_t now = esp_timer_get_time();
     uint64_t dt = now - lastTachUs;
     if (dt < RPM_MIN_PERIOD) return;
@@ -407,6 +423,9 @@ void tach_init() {
 }
 
 void tach_task(void *arg) {
+    // Convert recent pulse periods into RPM.  The rolling buffer plus adaptive
+    // rejection protects the display from ignition noise without making real
+    // RPM changes feel too lazy.
     const TickType_t delay = pdMS_TO_TICKS(TACH_UPDATE_DELAY);
 
     static int rejectStreak = 0;
@@ -489,6 +508,9 @@ void tach_task(void *arg) {
 
 static int detect_gear(float rpm, float mph, float dt)
 {
+    // Gear detection is based on RPM per MPH.  GPS speed can lag or jitter, so
+    // the ratio is smoothed and obvious clutch/rev-match events temporarily
+    // return neutral instead of showing a false gear.
     static int current_gear = -1;   // -1 = N
     static float filtered_ratio = 0;
 
@@ -576,6 +598,8 @@ void tach_set_rpm(int rpm){
 
 
 void gauge_timer(lv_timer_t * t) {
+    // UI-only timer.  Sensor tasks update shared state; this timer formats the
+    // values for LVGL and smooths visual movement such as the RPM arc.
 
     static float displayRPM = 0.0f;
     displayRPM += 0.20f * (rpmNow - displayRPM);
@@ -652,6 +676,8 @@ void gauge_timer(lv_timer_t * t) {
 
 
 float resistance_to_F(float R) {
+    // Table lookup with linear interpolation between measured sender points.
+    // The resistance table is descending as temperature rises.
     if (R >= sensorR[0]) return tempF[0];
     if (R <= sensorR[TEMP_SENSOR_TABLE_SIZE - 1]) return tempF[TEMP_SENSOR_TABLE_SIZE - 1];
 
@@ -683,6 +709,8 @@ float voltage_to_psi(float v) {
 
 static uint16_t crc16_ccitt(const uint8_t *data, uint16_t len)
 {
+    // CRC covers the sequence byte and payload, leaving SOF outside the check
+    // and reserving the final two bytes for the CRC itself.
     uint16_t crc = 0xFFFF;
 
     for (int i = 0; i < len; i++) {
@@ -701,6 +729,8 @@ static uint16_t crc16_ccitt(const uint8_t *data, uint16_t len)
 //---------------------------------GPS------------------------//
 
 static void speed_update_cb(void *arg){
+    // Runs on the LVGL side via lv_async_call so gps_task does not directly
+    // mutate widgets from its FreeRTOS context.
     lv_obj_t *label = (lv_obj_t *)arg;
     static bool last_fix = true;
     static int last_speed = -1;
@@ -733,6 +763,9 @@ static void speed_update_cb(void *arg){
 }
 
 void save_miles_task(void *arg){
+    // Persisting every meter would wear NVS quickly.  The odometer module only
+    // commits after its distance threshold, and this task gives it regular
+    // chances to do that work.
     while (1){
         odometer_periodic_save();
         vTaskDelay(pdMS_TO_TICKS(3000));
@@ -740,6 +773,8 @@ void save_miles_task(void *arg){
 }
 
 void gps_task(void *arg) {
+    // Feed NMEA bytes into TinyGPS++, update the speed label asynchronously,
+    // and use high-quality position updates for lap timing and odometer growth.
     uint8_t buf[128];
     static double last_lat = 0.0;
     static double last_lon = 0.0;
@@ -823,6 +858,8 @@ void gps_task(void *arg) {
 
 //------------------------------ADC_UART---------------------------------------//
 static void adc_global_init(void) {
+    // ADC attenuation is configured once at boot.  Individual reads below are
+    // sampled and averaged per sensor to reduce noise.
     adc1_config_width(ADC_WIDTH);
 
     // ADC1 channels
@@ -841,6 +878,7 @@ static void adc_global_init(void) {
 }
 
 uint32_t sample_sum_adc1(adc1_channel_t adc_channel, int samples){
+    // Simple boxcar average for ADC1 sensors.
     uint32_t sum = 0;
     for (int i = 0; i < samples; i++) {
         sum += adc1_get_raw(adc_channel);
@@ -849,6 +887,7 @@ uint32_t sample_sum_adc1(adc1_channel_t adc_channel, int samples){
 }
 
 uint32_t sample_sum_adc2(adc2_channel_t adc_channel, int samples){
+    // ADC2 read API returns through an output parameter, so average manually.
     uint32_t sum = 0;
     int raw = 0;
 
@@ -861,6 +900,9 @@ uint32_t sample_sum_adc2(adc2_channel_t adc_channel, int samples){
 }
 
 static void adc_task(void *arg) {
+    // Main analog acquisition loop.  Each sensor group has its own cadence so
+    // slow-changing values like fuel do not waste cycles, while AFR/pressure
+    // still update quickly enough for the display and UART stream.
     int64_t last_temp_ms     = 0;
     int64_t last_pressure_ms = 0;
     int64_t last_afr_ms      = 0;
@@ -1027,6 +1069,7 @@ static void adc_task(void *arg) {
             }
         }
         if (now_ms - last_tx_ms >= 20) {
+            // 50 Hz gauge packet stream to both UART outputs.
             last_tx_ms = now_ms;
             static uint8_t seq = 0;
             uint8_t buf[GAUGE_PKT_LEN];
@@ -1082,6 +1125,8 @@ static void adc_task(void *arg) {
 
 
 static void uart_init(uart_port_t uart_num, int txPin, int rxPin, int bufSize, int baud) {
+    // Shared UART setup for the two gauge transmit ports and the GPS receive
+    // port.  Unused pins are passed as UART_PIN_NO_CHANGE.
     uart_config_t cfg = {
         .baud_rate = baud,
         .data_bits = UART_DATA_8_BITS,
@@ -1112,6 +1157,8 @@ static void uart_init(uart_port_t uart_num, int txPin, int rxPin, int bufSize, i
 }
 
 static void can_mapping_task(void *arg){
+    // CAN path adapter: copy decoded ECU values into the same state variables
+    // that the analog path uses, then emit the identical UART payload format.
     int64_t last_tx_ms  = 0;
     int64_t last_odo_ms = 0;
 
@@ -1188,6 +1235,8 @@ static void can_mapping_task(void *arg){
 //------------------------------------------------------------------------//
 
 void app_main(void) {
+    // Boot sequence: display/LVGL first, then hardware inputs, persistent
+    // odometer state, UI construction, UARTs, and finally the data-source tasks.
     bsp_display_cfg_t cfg = {
         .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
         .buffer_size = BSP_LCD_DRAW_BUFF_SIZE,

@@ -41,6 +41,9 @@ volatile can_dash_data_t can_data = {0};
 // =======================================================
 
 void process_can_frame(uint32_t id, uint8_t *data){
+    // Every received standard CAN frame is first offered to protocol detection.
+    // Once a protocol is active, the prebuilt lookup table turns the CAN ID
+    // into a frame definition and each signal is decoded into can_data.
     protocol_detect(id);
 
     if(!active_protocol)
@@ -59,6 +62,9 @@ void process_can_frame(uint32_t id, uint8_t *data){
 
         uint32_t raw = 0;
 
+        // Protocol JSON currently supports 1-byte and 2-byte signals.  Two-byte
+        // values need endian handling because ECUs do not all pack fields the
+        // same way.
         if(sig->len==2){
             if(sig->endian==ENDIAN_BIG)
                 raw=(data[sig->offset]<<8)|data[sig->offset+1];
@@ -76,6 +82,9 @@ void process_can_frame(uint32_t id, uint8_t *data){
 
 
 void mount_fs() {
+    // SPIFFS is mounted for protocol assets.  The current build embeds JSON via
+    // protocol_list, but keeping the filesystem mounted leaves room for future
+    // user-loaded protocols.
     esp_vfs_spiffs_conf_t conf = {
         .base_path = "/spiffs",
         .partition_label = NULL,
@@ -87,6 +96,8 @@ void mount_fs() {
 }
 
 static twai_timing_config_t get_timing(int bitrate){
+    // Map integer bitrates from detection/protocol config to ESP-IDF TWAI
+    // timing macros.  Unknown values fall back to the common 500 kbit/s rate.
     twai_timing_config_t t;
 
     switch (bitrate){
@@ -117,6 +128,9 @@ static twai_timing_config_t get_timing(int bitrate){
 
 int detect_can_bitrate()
 {
+    // Try common ECU bus speeds and accept the first rate that produces a few
+    // valid standard data frames.  The driver is installed/uninstalled for each
+    // attempt because TWAI timing cannot be changed while running.
     twai_general_config_t g_config =
         TWAI_GENERAL_CONFIG_DEFAULT(CAN_TX, CAN_RX, TWAI_MODE_NORMAL);
 
@@ -172,6 +186,8 @@ int detect_can_bitrate()
 
 void canbus_init(void)
 {
+    // Load protocol definitions, auto-detect the bus speed, then start TWAI for
+    // normal receive operation.
     mount_fs();
 
     protocol_loader_init();
@@ -198,6 +214,8 @@ void canbus_init(void)
 // =======================================================
 
 void canbus_task(void *arg){
+    // Tight receive loop.  Extended and remote frames are ignored because the
+    // dash protocol tables are keyed by 11-bit data-frame IDs.
     twai_message_t message;
 
     while (1){

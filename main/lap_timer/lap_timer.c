@@ -32,6 +32,8 @@ static uint64_t current_lap_us   = 0;
 static uint64_t best_lap_us      = 0;
 
 // Predictive timing
+// This is a simple "current elapsed time vs reference lap duration" delta.  It
+// does not yet compare against GPS checkpoints around the lap.
 static int32_t  predictive_delta_us = 0;
 
 // Reference ghost lap
@@ -43,6 +45,8 @@ static double deg_to_rad(double deg) {
 }
 
 static double distance_m(double lat1, double lon1, double lat2, double lon2) {
+    // Haversine distance is accurate enough for the small finish-line trigger
+    // radius and avoids pulling in any heavier geospatial dependency.
     double dLat = deg_to_rad(lat2 - lat1);
     double dLon = deg_to_rad(lon2 - lon1);
 
@@ -57,6 +61,8 @@ static double distance_m(double lat1, double lon1, double lat2, double lon2) {
 }
 
 void lap_timer_update(double lat, double lon, float speed_mph, bool has_fix) {
+    // Called from gps_task when a fresh, good-quality GPS fix arrives.  The
+    // timer only reacts when the vehicle enters the finish radius at speed.
     if (!has_fix)
         return;
 
@@ -71,7 +77,8 @@ void lap_timer_update(double lat, double lon, float speed_mph, bool has_fix) {
     if (dist > FINISH_RADIUS_M)
         return;
 
-    // Debounce to prevent multi-trigger
+    // Debounce to prevent several GPS samples inside the finish radius from
+    // registering as multiple crossings.
     if (now - last_cross_us < CROSS_DEBOUNCE_US)
         return;
 
@@ -118,6 +125,8 @@ uint64_t lap_timer_get_best_us(void) {
 }
 
 int32_t lap_timer_get_delta_us(void) {
+    // Positive means the current lap has already taken longer than the
+    // reference lap.  Negative means it is still ahead of that reference time.
     if (!lap_running || reference_lap_us == 0)
         return 0;
 

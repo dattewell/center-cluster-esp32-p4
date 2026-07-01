@@ -1,7 +1,7 @@
 {
     "idf.flashType": "UART",
     "idf.port": "/dev/tty.usbmodem21101",
-    "idf.currentSetup": "/Users/tway/esp/esp-idf",
+    "idf.currentSetup": "/Users/dcattewell/.espressif/v5.5.3/esp-idf",
     "idf.customExtraVars": {
         "IDF_TARGET": "esp32p4"
     }

@@ -9,6 +9,9 @@
 // =======================================================
 // DASH DATA STRUCTURE
 // =======================================================
+// Shared decoded ECU state.  protocol_loader maps JSON signal names into these
+// fields, canbus_task updates them from incoming frames, and main.c consumes
+// them when SENSOR_SOURCE_CAN is selected.
 
 typedef struct{
     float rpm;
@@ -19,11 +22,12 @@ typedef struct{
     float oil_pressure;
     float air_fuel_ratio;
     float boost;
-    float fuel_comp
+    float fuel_comp;
 } can_dash_data_t;
 
 
-// global decoded data
+// Global decoded data.  It is volatile because it is written by the CAN receive
+// task and read by the application mapping/UI tasks.
 extern volatile can_dash_data_t can_data;
 
 
@@ -33,7 +37,11 @@ extern volatile can_dash_data_t can_data;
 // =======================================================
 
 void canbus_init(void);
+
+// FreeRTOS receive task.  Call canbus_init() before creating this task.
 void canbus_task(void *arg);
+
+// Decode one standard 11-bit CAN frame using the detected protocol.
 void process_can_frame(uint32_t id, uint8_t *data);
 
 #endif

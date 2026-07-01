@@ -14,6 +14,8 @@
 static const char *TAG = "ODOMETER";
 
 typedef struct {
+    // One persisted odometer copy.  version lets the newest valid slot win, and
+    // crc catches torn writes or flash corruption before a value is trusted.
     uint64_t meters;
     uint32_t version;
     uint32_t crc;
@@ -32,6 +34,8 @@ static bool use_slot_a = true;
 
 static uint32_t calculate_crc(const odo_record_t *rec)
 {
+    // Exclude the crc field itself so the checksum represents only the stored
+    // odometer value and version.
     return esp_crc32_le(0,
                         (const uint8_t *)rec,
                         sizeof(odo_record_t) - sizeof(uint32_t));
@@ -49,6 +53,8 @@ static bool record_valid(odo_record_t *rec)
 
 void odometer_init(void)
 {
+    // NVS can require erase/re-init after partition changes or version changes.
+    // Once open, both slots are checked and the newest valid record is selected.
     esp_err_t err = nvs_flash_init();
 
     if (err == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -73,6 +79,8 @@ void odometer_init(void)
         valid_b = record_valid(&rec_b);
 
     if (valid_a && valid_b) {
+        // Both records are good; use the highest version and write the next
+        // update to the opposite slot to keep wear balanced.
         if (rec_a.version >= rec_b.version) {
             total_meters = rec_a.meters;
             current_version = rec_a.version;
@@ -86,6 +94,7 @@ void odometer_init(void)
                  total_meters, current_version);
     }
     else if (valid_a) {
+        // One-slot recovery lets the odometer survive an interrupted write.
         total_meters = rec_a.meters;
         current_version = rec_a.version;
         use_slot_a = false;
@@ -121,6 +130,8 @@ void odometer_add_meters(uint32_t meters)
 
 static void save_record(void)
 {
+    // Alternate between two NVS keys.  If power drops during a commit, the
+    // previous slot should still contain a valid CRC/version pair.
     odo_record_t rec;
 
     rec.meters = total_meters;
@@ -145,6 +156,8 @@ static void save_record(void)
 
 void odometer_periodic_save(void)
 {
+    // Distance-based save interval reduces flash wear while still bounding how
+    // much distance can be lost after an unexpected power-off.
     if ((total_meters - last_saved_meters) >= SAVE_INTERVAL_M)
     {
         save_record();

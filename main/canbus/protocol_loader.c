@@ -32,6 +32,8 @@ static bool detection_done = false;
 
 
 static float* signal_name_to_ptr(const char *name){
+    // JSON protocol files name signals by meaning; this table connects those
+    // names to the live dash data fields used by the rest of the application.
     if (!strcmp(name,"rpm")) return &can_data.rpm;
     if (!strcmp(name,"speed")) return &can_data.speed;
     if (!strcmp(name,"coolant_temp")) return &can_data.coolant_temp;
@@ -47,6 +49,8 @@ static float* signal_name_to_ptr(const char *name){
 }
 
 static void record_id(uint32_t id){
+    // Utility for tracking IDs seen during detection experiments.  It is kept
+    // separate from protocol hit counting so the detection strategy can evolve.
     for(int i=0;i<seen_count;i++)
         if(seen_ids[i]==id)
             return;
@@ -56,6 +60,9 @@ static void record_id(uint32_t id){
 }
 
 static void decode_generic(uint8_t *data){
+    // Generic decoder kept for table-driven dispatch experiments.  The active
+    // receive path decodes in process_can_frame(), where the CAN ID is already
+    // available and does not need to be inferred from the payload.
     if(!active_protocol)
         return;
 
@@ -91,6 +98,8 @@ static void decode_generic(uint8_t *data){
 }
 
 static void load_protocol_from_json(const char *json){
+    // Parse one embedded protocol JSON string into fixed-size C structs.  The
+    // fixed caps avoid heap-heavy dynamic layouts on the microcontroller.
     cJSON *root = cJSON_Parse(json);
 
     if(!root)
@@ -124,6 +133,8 @@ static void load_protocol_from_json(const char *json){
         cJSON *id = cJSON_GetObjectItem(frame,"id");
         cJSON *signals = cJSON_GetObjectItem(frame,"signals");
 
+        // Accept decimal JSON numbers and strings like "0x360" so protocol
+        // files can stay readable for automotive CAN IDs.
         if(cJSON_IsString(id))
             proto->frames[i].id = strtol(id->valuestring,NULL,0);
         else
@@ -144,6 +155,8 @@ static void load_protocol_from_json(const char *json){
             cJSON *offset_val = cJSON_GetObjectItem(sig,"offset_val");
             cJSON *endian = cJSON_GetObjectItem(sig,"endian");
 
+            // Unknown signal names are allowed; they decode to NULL and are
+            // skipped at runtime instead of failing the whole protocol.
             signal->target = name ? signal_name_to_ptr(name->valuestring) : NULL;
             signal->offset = offset ? offset->valueint : 0;
             signal->len = len ? len->valueint : 1;
@@ -163,6 +176,9 @@ static void load_protocol_from_json(const char *json){
 }
 
 void protocol_loader_init(void){
+    // Load every embedded protocol and build an O(1) CAN-ID lookup table for
+    // the receive task.  Later protocols with the same ID overwrite earlier
+    // lookups until active_protocol detection decides which definition is real.
     ESP_LOGI(TAG,"Loading CAN protocols");
 
     protocol_count = 0;
@@ -193,6 +209,8 @@ void protocol_loader_init(void){
 
 void protocol_detect(uint32_t id)
 {
+    // Lightweight auto-detection: when the same known ID is observed twice for
+    // a protocol, lock to that protocol and stop spending time on detection.
     if (detection_done)
         return;
 
