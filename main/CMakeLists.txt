@@ -59,14 +59,17 @@ file(APPEND ${PROTOCOL_LIST_FILE}
 idf_component_register(
     SRCS 
         "main.c"
-        "tach_ui/ui.c"
-        "tach_ui/screens/ui_Screen1.c"
-        "tach_ui/images/ui_img_1656279599.c"
-        "tach_ui/fonts/ui_font_DotoLarge.c"
-        "tach_ui/fonts/ui_font_Doto_48.c"
-        "tach_ui/fonts/school_bell_48.c"
-        "tach_ui/images/ui_img_sti_logo_png.c"
-        "tach_ui/boot/boot_screen.c"
+        "ui/ui.c"
+        "ui/ui_helpers.c"
+        "ui/screens/ui_MainSpeedo.c"
+        "ui/screens/ui_OtherData.c"
+        "ui/screens/ui_BootScreen.c"        
+        "ui/images/ui_img_bootscreen_png.c"
+        "ui/images/ui_img_gauge_background_png.c"
+        "ui/images/ui_img_gauge_needle_png.c"
+        "ui/fonts/ui_font_DIN_1451__96.c"
+        "ui/fonts/ui_font_DIN_1451_Mittelschrift_.c"
+        "ui/boot/boot_screen.c"
         "odometer/odometer.c"
         "lap_timer/lap_timer.c"
         "gps_wrap/gps_wrapper.cpp"
@@ -75,7 +78,7 @@ idf_component_register(
         ${PROTOCOL_LIST_FILE}
 
     INCLUDE_DIRS 
-        "./tach_ui"
+        "./ui"
         "./lap_timer"
         "./odometer"
         "./gps_wrap"

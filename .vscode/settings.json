@@ -1,4 +1,9 @@
 {
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+    "C_Cpp.default.compilerPath": "/Users/dcattewell/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20251107/riscv32-esp-elf/bin/riscv32-esp-elf-gcc",
+    "clangd.arguments": [
+        "--query-driver=/Users/dcattewell/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20251107/riscv32-esp-elf/bin/riscv32-esp-elf-gcc"
+    ],
     "idf.flashType": "UART",
     "idf.port": "/dev/tty.usbmodem21101",
     "idf.currentSetup": "/Users/dcattewell/.espressif/v5.5.3/esp-idf",

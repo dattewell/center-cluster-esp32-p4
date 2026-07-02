@@ -21,6 +21,7 @@ extern lv_obj_t *ui_Odometer2;
 extern lv_obj_t *ui_Odometer3;
 extern lv_obj_t *ui_Odometer4;
 extern lv_obj_t *ui_Odometer5;
+extern lv_obj_t *ui_Odometer6;
 extern lv_obj_t *ui_SpeedoNeedle;
 // CUSTOM VARIABLES
 

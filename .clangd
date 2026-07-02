@@ -1,0 +1,7 @@
+CompileFlags:
+  CompilationDatabase: build
+  Remove:
+    - -march=*
+    - -mabi=*
+    - -fstrict-volatile-bitfields
+    - -fno-tree-switch-conversion

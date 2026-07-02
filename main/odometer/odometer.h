@@ -19,4 +19,4 @@ void odometer_force_save(void);
 uint64_t odometer_get_meters(void);
 
 // Total distance converted to miles for display.
-double odometer_get_miles(void);
+int odometer_get_miles(void);

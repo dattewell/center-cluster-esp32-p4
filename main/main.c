@@ -94,9 +94,9 @@
 #define GPS_BUF_SIZE          1024
 #define GPS_MIN_VALID_MPH 3.0f
 
-static char gps_speed_str[8];
+//static char gps_speed_str[8];
 static volatile float g_speed_mph = 0.0f;
-static lv_obj_t *speed_label;
+//static lv_obj_t *speed_label;
 //--------------------------//
 
 //--------UPDATE/REFRESH_DELAYS------//
@@ -168,8 +168,8 @@ const float oil_fuel_pressure_alpha = 0.18f;
 
 static portMUX_TYPE tachMux = portMUX_INITIALIZER_UNLOCKED;
 static pcnt_unit_handle_t pcnt_unit;
-static int last_count = 0;
-static int64_t last_time = 0;
+//static int last_count = 0;
+//static int64_t last_time = 0;
 static volatile float current_rpm = 0.0f;
 volatile uint64_t lastTachUs = 0;
 volatile uint64_t tachPeriodUs = 0;
@@ -317,6 +317,14 @@ static void update_label_if_needed(lv_obj_t *label, char *new_value, lv_color_t 
     if (old_color.full != new_color.full) { 
         lv_obj_set_style_text_color(label, new_color, LV_PART_MAIN); 
     } 
+}
+
+static void update_odo_if_needed(lv_obj_t *label, char digit) {
+    char new_value[2] = { digit, '\0' };
+    const char *old_text = lv_label_get_text(label);
+    if (strcmp(old_text, new_value) != 0) {
+        lv_label_set_text(label, new_value);
+    }
 }
 
 static uint8_t clamp_u8(int val) {
@@ -587,13 +595,11 @@ void tach_set_rpm(int rpm){
 
     // Only change color if needed
     if (new_color.full != current_color.full) {
-        lv_obj_set_style_arc_color(ui_rpm_arc,
-                                   new_color,
-                                   LV_PART_INDICATOR);
+        //lv_obj_set_style_arc_color(ui_rpm_arc,new_color,LV_PART_INDICATOR);
         current_color = new_color;
     }
 
-    lv_arc_set_value(ui_rpm_arc, rpm);
+   // lv_arc_set_value(ui_rpm_arc, rpm);
 }
 
 
@@ -606,10 +612,22 @@ void gauge_timer(lv_timer_t * t) {
 
     tach_set_rpm(displayRPM);
 
-    double miles = odometer_get_miles();
-    char odo_buf[16];
-    snprintf(odo_buf, sizeof(odo_buf), "%06.1f", miles);
-    update_label_if_needed(ui_label_odometer_value, odo_buf, green_color);
+    int miles = odometer_get_miles();
+    //char odo_buf[16];
+    //snprintf(odo_buf, sizeof(odo_buf), "%06.1f", miles);
+    //update_label_if_needed(ui_label_odometer_value, odo_buf, green_color);
+    int digit1 = ((miles / 100000) % 10);  // hundred-thousands
+    int digit2 = ((miles / 10000) % 10);   // ten-thousands
+    int digit3 = ((miles / 1000) % 10);    // thousands
+    int digit4 = ((miles / 100) % 10);     // hundreds
+    int digit5 = ((miles / 10) % 10);      // tens
+    int digit6 = ((miles % 10));             // units
+    update_odo_if_needed(ui_Odometer1, digit1);
+    update_odo_if_needed(ui_Odometer2, digit2);
+    update_odo_if_needed(ui_Odometer3, digit3);
+    update_odo_if_needed(ui_Odometer4, digit4);
+    update_odo_if_needed(ui_Odometer5, digit5);
+    update_odo_if_needed(ui_Odometer6, digit6);
 
 
     // -------- GEAR DETECTION -------- //
@@ -631,11 +649,11 @@ void gauge_timer(lv_timer_t * t) {
     if (gear != last_displayed) {
 
         if(gear == -1) {
-            update_label_if_needed(ui_label_gear_value, "N", purple_color);
+            //update_label_if_needed(ui_label_gear_value, "N", purple_color);
         } else {
             char buf[2];
             snprintf(buf, sizeof(buf), "%d", gear);
-            update_label_if_needed(ui_label_gear_value, buf, purple_color);
+            //update_label_if_needed(ui_label_gear_value, buf, purple_color);
         }
 
         last_displayed = gear;
@@ -650,7 +668,8 @@ void gauge_timer(lv_timer_t * t) {
         int speed = (int)speed_mph;
         static char buf[8];
         snprintf(buf, sizeof(buf), "%d", speed);
-        lv_label_set_text(ui_label_mph_value, buf);
+        //lv_label_set_text(ui_label_mph_value, buf);
+        
 
         char afr_buf[12];
         snprintf(afr_buf, sizeof(afr_buf), "%4.1f", g_gauge_data.afr);
@@ -753,10 +772,11 @@ static void speed_update_cb(void *arg){
     int speed = (int)speed_mph;
 
     if (!last_fix || speed != last_speed) {
-        static char buf[8];
-        snprintf(buf, sizeof(buf), "%d", speed);
-        lv_label_set_text(label, buf);
-
+        //static char buf[8];
+        //snprintf(buf, sizeof(buf), "%d", speed);
+        //lv_label_set_text(label, buf);
+        lv_img_set_angle(label,-670+speed*35); // sets speed to needle 35 is 3.5 degrees
+                
         last_speed = speed;
         last_fix = true;
     }
@@ -799,7 +819,7 @@ void gps_task(void *arg) {
             int speed_int = (int)new_speed;
 
             if (speed_int != last_speed) {
-                lv_async_call(speed_update_cb, ui_label_mph_value);
+                lv_async_call(speed_update_cb, ui_SpeedoNeedle);
                 last_speed = speed_int;
             }
             if (sats_used >= 5 && hdop < 3.5f && gps_location_updated()){
@@ -839,7 +859,7 @@ void gps_task(void *arg) {
 
         } else {
             g_speed_mph = 0;                
-            lv_async_call(speed_update_cb, ui_label_mph_value);
+            lv_async_call(speed_update_cb, ui_SpeedoNeedle);
         }
         #if ENABLE_LOGS
             ESP_LOGI(TAG_GPS,
