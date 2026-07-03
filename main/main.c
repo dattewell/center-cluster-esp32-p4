@@ -55,18 +55,18 @@
 #define WATER_TEMP_ADC_CHANNEL ADC1_CHANNEL_4
 
 //Oil Temp - GPIO 50
-#define OIL_TEMP_ADC_CHANNEL ADC2_CHANNEL_1
+//#define OIL_TEMP_ADC_CHANNEL ADC2_CHANNEL_1
 
 // Boost - GPIO 52
-#define BOOST_ADC_CHANNEL ADC2_CHANNEL_3
+//#define BOOST_ADC_CHANNEL ADC2_CHANNEL_3
 
 //Oil Pressure - GPIO 21
 #define OIL_PRESSURE_ADC_CHANNEL ADC1_CHANNEL_5
 
 //Fuel Pressure - GPIO 22
-#define FUEL_PRESSURE_ADC_CHANNEL ADC1_CHANNEL_6
+//#define FUEL_PRESSURE_ADC_CHANNEL ADC1_CHANNEL_6
 
-#define TACH_GPIO GPIO_NUM_5
+//#define TACH_GPIO GPIO_NUM_5
 
 // AFR - GPIO 49
 #define AFR_ADC_CHANNEL ADC2_CHANNEL_0 
@@ -94,9 +94,7 @@
 #define GPS_BUF_SIZE          1024
 #define GPS_MIN_VALID_MPH 3.0f
 
-//static char gps_speed_str[8];
 static volatile float g_speed_mph = 0.0f;
-//static lv_obj_t *speed_label;
 //--------------------------//
 
 //--------UPDATE/REFRESH_DELAYS------//
@@ -104,7 +102,6 @@ static volatile float g_speed_mph = 0.0f;
 #define TEMP_UPDATE_DELAY 250 // 4 updates a second
 #define PRESSURE_UPDATE_DELAY 50 // 20 updates a second
 #define AFR_UPDATE_DELAY   20 // 50 updates a second
-#define TACH_UPDATE_DELAY   7 // ~143 updates a second
 //-----------------------------------//
 
 //-------------TEMP-------------//
@@ -128,15 +125,6 @@ const float sensorR[] = {
 };
 //------------------------------//
 
-//-------------BOOST-------------//
-#define BOOST_FILTER_ALPHA 0.18F
-#define BOOST_DIVIDER_SCALE (20.0f / (10.0f + 20.0f))
-//equals voltage that boost sensor reads 0psi
-#define BOOST_ZERO_OFFSET 1.0F
-//adds psi for gauge calibration as all gauges read a little off...
-#define BOOST_OFFSET 3.2F
-//--------------------------------//
-
 
 //-------------PRESSURE-------------//
 #define ADC_ATTEN ADC_ATTEN_DB_11           
@@ -151,40 +139,11 @@ const float oil_fuel_pressure_alpha = 0.18f;
 
 
 //-------------WIDEBAND AFR-------------//
-
 #define AFR_DIVIDER_GAIN ((68.0f + 33.0f) / 33.0f)   // ≈ 3.06
 #define AFR_OFFSET 0.7f 
 #define AFR_FILTER_ALPHA 0.3f   // smoothing
 //--------------------------------------//
 
-//-------------RPM-------------//
-#define MAX_PERIOD_CHANGE 0.12f   // 15% allowed change
-#define PULSES_PER_REV 2
-#define MIN_PULSE_COUNT 2       // minimum pulses before computing RPM
-#define MAX_RPM 9000.0f
-#define ARC_SCALE (100.0f / MAX_RPM) 
-#define RPM_MIN_PERIOD  3000
-#define RPM_TIMEOUT_MS  500    // If no pulse for this long, RPM = 0
-
-static portMUX_TYPE tachMux = portMUX_INITIALIZER_UNLOCKED;
-static pcnt_unit_handle_t pcnt_unit;
-//static int last_count = 0;
-//static int64_t last_time = 0;
-static volatile float current_rpm = 0.0f;
-volatile uint64_t lastTachUs = 0;
-volatile uint64_t tachPeriodUs = 0;
-volatile uint64_t lastPulseMs = 0;
-
-float rpmLastRaw = 0.0f;
-float rpmNow = 0.0f;
-float rpmFiltered = 0.0f;
-
-#define PERIOD_AVG_SAMPLES 4
-
-uint64_t periodBuffer[PERIOD_AVG_SAMPLES] = {0};
-int periodIndex = 0;
-
-//------------------------------//
 
 //-------------FUEL-------------//
 #define FUEL_PULLUP_VOLTAGE   3.3f
@@ -198,45 +157,7 @@ static float fuel_ohms = 0.0f;
 static int64_t boot_time_ms = 0;
 //------------------------------//
 
-// -------- GEAR DETECTION ------//
 
-#define IDLE_RPM_THRESHOLD      1200.0f
-#define NEUTRAL_RATIO_FACTOR    0.65f
-#define GEAR_RATIO_TOL          14.0f
-#define GEAR_CONFIRM_TIME       0.30f
-#define GEAR_FILTER_ALPHA       0.18f
-#define GEAR_SHIFT_LOCK_TIME    0.25f
-#define GEAR_SLIP_RPM_RATE      2200.0f
-
-
-/**
-This is setup for a JDM STi 6spd
-For your use case you would need to calculate a value for each gear using
-
-    RPM_per_MPH = (GearRatio × FinalDrive × 336) / TireDiameter 
-
-and add that to each below in the table.
-**/
-static const float gear_table[6] = {
-    193.0f,  // 1
-    126.0f,  // 2
-    93.0f,   // 3
-    71.0f,   // 4
-    56.0f,   // 5
-    44.0f    // 6
-};
-
-static float gear_filtered_ratio = 0;
-static float gear_last_rpm = 0;
-static float gear_last_speed = 0;
-
-static int gear_confirmed = 0;
-static int gear_candidate = 0;
-
-static float gear_confirm_timer = 0;
-static float gear_lock_timer = 0;
-
-//------------------------------//
 
 //-------------LOGGING------------//
 static const char *TAG_TEMP = "TEMP_SENSOR";
@@ -252,14 +173,10 @@ static const char *TAG_AFR = "AFR_SENSOR";
 // engineering-unit values first, then the UART packet layer scales them to the
 // fixed-point protocol expected by the remote gauge display.
 typedef struct {
-    float oil_temp_f;
     float water_temp_f;
     float oil_pressure_psi;
-    float fuel_pressure_psi;
     float fuel_level_pct;
     float afr;
-    float boost_psi;
-    float fuel_comp;
 } gauge_data_t;
 
 static gauge_data_t g_gauge_data;
@@ -268,15 +185,10 @@ static gauge_data_t g_gauge_data;
 // Wire payload sent after GAUGE_PKT_SOF and a sequence byte.
 // Values are multiplied by 10 to avoid sending floats over UART.
 typedef struct __attribute__((packed)) {
-    uint16_t oil_temp;       // °F x10
     uint16_t water_temp;     // °F x10
     uint16_t oil_pressure;   // psi x10
-    uint16_t fuel_pressure;  // psi x10
     uint16_t fuel_level;     // % x10
     uint16_t afr;            // AFR x10
-    int16_t boost;           // psi x10
-    uint32_t lap_time_ms;    // current lap in milliseconds
-    int32_t  lap_delta_ms;   // predictive delta in ms
 } gauge_payload_t;
 
 
@@ -295,6 +207,19 @@ static inline int constrain_int(int x, int low, int high) {
     return x;
 }
 
+static void update_afr(float new_value){
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%4.1f", new_value);
+
+    // Only update text if changed
+    const char *old_text = lv_label_get_text(ui_AFRValue);
+    if (strcmp(old_text, buf) != 0) {
+        lv_label_set_text(ui_AFRValue,buf);
+        lv_arc_set_value(ui_AFRARC, (int16_t)lround(new_value * 10));
+    }
+
+}
+
 static void init_label_styles(void){
 
     green_color = lv_color_hex(0x28FF00);
@@ -303,20 +228,6 @@ static void init_label_styles(void){
     purple_color = lv_palette_main(LV_PALETTE_PURPLE);
     pink_color = lv_palette_main(LV_PALETTE_PINK);
     blue_color = lv_palette_main(LV_PALETTE_CYAN);
-}
-
-static void update_label_if_needed(lv_obj_t *label, char *new_value, lv_color_t new_color) { 
-    // LVGL updates are relatively expensive.  Avoid invalidating widgets when
-    // the formatted value or color is unchanged.
-    const char *old_text = lv_label_get_text(label); 
-    if (strcmp(old_text, new_value) != 0) { 
-        lv_label_set_text(label, new_value); 
-    } 
-    // Only update color if changed 
-    lv_color_t old_color = lv_obj_get_style_text_color(label, LV_PART_MAIN); 
-    if (old_color.full != new_color.full) { 
-        lv_obj_set_style_text_color(label, new_color, LV_PART_MAIN); 
-    } 
 }
 
 static void update_odo_if_needed(lv_obj_t *label, char digit) {
@@ -334,8 +245,6 @@ static uint8_t clamp_u8(int val) {
 }
 
 //-----------------------FUEL---------------------------//
-
-
 
 float fuel_pct_from_voltage(float v){
     // Sender response is intentionally piecewise instead of a single straight
@@ -391,231 +300,14 @@ float read_temp_resistance(int raw){
 
 //-----------------------------------------------------//
 
-//-----------------------_RPM---------------------------//
-
-// Optional adaptive alpha for EMA
-static inline float alphaForRPM(float rpmRaw) {
-    // Base alpha depending on RPM range (smoother at low RPM, faster at high RPM)
-    float base;
-    if (rpmRaw < 1200.0f) base = 0.04f;      // idle, very smooth
-    else if (rpmRaw < 3000.0f) base = 0.12f; // mid RPM
-    else base = 0.20f;                      // high RPM, faster updates
-    return base;                       
-}
-
-void IRAM_ATTR tachISR(void* arg) {
-    // Keep ISR work tiny: reject impossibly short periods, store the latest
-    // pulse interval in a rolling buffer, and let tach_task do the filtering.
-    uint64_t now = esp_timer_get_time();
-    uint64_t dt = now - lastTachUs;
-    if (dt < RPM_MIN_PERIOD) return;
-    portENTER_CRITICAL_ISR(&tachMux);
-    periodBuffer[periodIndex] = dt;
-    periodIndex = (periodIndex + 1) % PERIOD_AVG_SAMPLES;
-    tachPeriodUs = dt;   // store last good period
-    lastTachUs = now;
-    lastPulseMs = now / 1000;
-    portEXIT_CRITICAL_ISR(&tachMux);
-}
-
-void tach_init() {
-    gpio_config_t io_conf = {};
-    io_conf.intr_type = GPIO_INTR_POSEDGE;
-    io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pin_bit_mask = (1ULL << TACH_GPIO);
-    io_conf.pull_up_en = 0;
-    gpio_config(&io_conf);
-
-    gpio_install_isr_service(0);
-    gpio_isr_handler_add(TACH_GPIO, tachISR, NULL);
-}
-
-void tach_task(void *arg) {
-    // Convert recent pulse periods into RPM.  The rolling buffer plus adaptive
-    // rejection protects the display from ignition noise without making real
-    // RPM changes feel too lazy.
-    const TickType_t delay = pdMS_TO_TICKS(TACH_UPDATE_DELAY);
-
-    static int rejectStreak = 0;
-
-    while (true) {
-        float rpmRaw = 0.0f;
-        int count = 0;
-
-        float lastValid = (rpmLastRaw > 500.0f) ? rpmLastRaw :
-                          (rpmFiltered > 500.0f ? rpmFiltered : 1000.0f);
-
-        portENTER_CRITICAL(&tachMux);
-
-        for (int i = 0; i < PERIOD_AVG_SAMPLES; i++) {
-
-            if (periodBuffer[i] > 0) {
-
-                float rpm =
-                    60000000.0f /
-                    (periodBuffer[i] * PULSES_PER_REV);
-
-                float tolerance;
-
-                if (lastValid < 1500.0f)
-                    tolerance = 0.40f;
-                else if (lastValid < 4000.0f)
-                    tolerance = 0.25f;
-                else
-                    tolerance = 0.18f;
-
-                // If we've rejected too long, relax the filter
-                if (rejectStreak > 40)
-                    tolerance *= 2.0f;
-
-                if (fabsf(rpm - lastValid) < lastValid * tolerance) {
-                    rpmRaw += rpm;
-                    count++;
-                }
-            }
-        }
-
-        portEXIT_CRITICAL(&tachMux);
-
-        if (count > 0) {
-            rpmRaw /= count;
-            rejectStreak = 0;
-        } else {
-            rejectStreak++;
-            rpmRaw = rpmFiltered;
-        }
-
-        rpmLastRaw = rpmRaw;
-
-        uint64_t nowMs = esp_timer_get_time() / 1000;
-
-        if (nowMs - lastPulseMs > RPM_TIMEOUT_MS) {
-            rpmFiltered = 0.0f;
-        }
-        else {
-
-            float alpha;
-
-            if (rpmRaw < 1200.0f)       alpha = 0.05f;
-            else if (rpmRaw < 3000.0f)  alpha = 0.12f;
-            else if (rpmRaw < 6000.0f)  alpha = 0.20f;
-            else                        alpha = 0.30f;
-
-            if (rpmFiltered == 0.0f)
-                rpmFiltered = rpmRaw;
-            else
-                rpmFiltered += alpha * (rpmRaw - rpmFiltered);
-        }
-
-        rpmNow = rpmFiltered;
-
-        vTaskDelay(delay);
-    }
-}
-
-
-static int detect_gear(float rpm, float mph, float dt)
-{
-    // Gear detection is based on RPM per MPH.  GPS speed can lag or jitter, so
-    // the ratio is smoothed and obvious clutch/rev-match events temporarily
-    // return neutral instead of showing a false gear.
-    static int current_gear = -1;   // -1 = N
-    static float filtered_ratio = 0;
-
-    if (mph < 2.0f) {
-        current_gear = -1;
-        filtered_ratio = 0;
-        return -1;
-    }
-
-    float safe_mph = fmaxf(mph, 1.0f);
-    float ratio = rpm / safe_mph;
-
-    // Smooth ratio (GPS stabilization)
-    filtered_ratio += 0.2f * (ratio - filtered_ratio);
-
-    // ---------- FORCE 1ST DURING LAUNCH ----------
-    if (mph < 12.0f && filtered_ratio > 150.0f) {
-        current_gear = 1;
-        return 1;
-    }
-
-    // ---------- CLUTCH / REV MATCH ----------
-    float rpm_rate = (rpm - gear_last_rpm) / dt;
-    float speed_rate = fabsf(mph - gear_last_speed);
-
-    gear_last_rpm = rpm;
-    gear_last_speed = mph;
-
-    if (fabsf(rpm_rate) > 2000.0f && speed_rate < 0.8f) {
-        current_gear = -1;
-        return -1;
-    }
-
-    // ---------- IDLE NEUTRAL ----------
-    if (rpm < 1350.0f && mph > 2.0f) {
-        current_gear = -1;
-        return -1;
-    }
-
-    // ---------- NORMAL GEAR MATCH ----------
-    float smallest_error = 9999.0f;
-    int best = current_gear;
-
-    for (int i = 0; i < 6; i++) {
-        float err = fabsf(filtered_ratio - gear_table[i]);
-        if (err < smallest_error) {
-            smallest_error = err;
-            best = i + 1;
-        }
-    }
-
-    // Only switch if clearly closer than current gear
-    if (smallest_error < 18.0f) {
-        current_gear = best;
-    }
-
-    return current_gear;
-}
-
-void tach_set_rpm(int rpm){
-    if(rpm < 0) rpm = 0;
-    if(rpm > 9000) rpm = 9000;
-
-    static lv_color_t current_color = {0};
-
-    lv_color_t new_color;
-
-    if (rpm >= 7000)
-        new_color = red_color;
-    else if (rpm >= 5000)
-        new_color = orange_color;
-    else
-        new_color = green_color;
-
-    // Only change color if needed
-    if (new_color.full != current_color.full) {
-        //lv_obj_set_style_arc_color(ui_rpm_arc,new_color,LV_PART_INDICATOR);
-        current_color = new_color;
-    }
-
-   // lv_arc_set_value(ui_rpm_arc, rpm);
-}
-
 
 void gauge_timer(lv_timer_t * t) {
     // UI-only timer.  Sensor tasks update shared state; this timer formats the
     // values for LVGL and smooths visual movement such as the RPM arc.
 
-    static float displayRPM = 0.0f;
-    displayRPM += 0.20f * (rpmNow - displayRPM);
 
-    tach_set_rpm(displayRPM);
-
+    //update ODOMETER
     int miles = odometer_get_miles();
-    //char odo_buf[16];
-    //snprintf(odo_buf, sizeof(odo_buf), "%06.1f", miles);
-    //update_label_if_needed(ui_label_odometer_value, odo_buf, green_color);
     int digit1 = ((miles / 100000) % 10);  // hundred-thousands
     int digit2 = ((miles / 10000) % 10);   // ten-thousands
     int digit3 = ((miles / 1000) % 10);    // thousands
@@ -630,6 +322,9 @@ void gauge_timer(lv_timer_t * t) {
     update_odo_if_needed(ui_Odometer6, digit6);
 
 
+    // update AFR
+    update_afr(g_gauge_data.afr);
+
     // -------- GEAR DETECTION -------- //
     static int64_t last_us = 0;
     int64_t now_us = esp_timer_get_time();
@@ -637,27 +332,6 @@ void gauge_timer(lv_timer_t * t) {
                (now_us - last_us) / 1000000.0f;
     last_us = now_us;
 
-    float speed_for_gear = g_speed_mph;
-
-    if (speed_for_gear < GPS_MIN_VALID_MPH)
-        speed_for_gear = 0.0f;
-
-    int gear = detect_gear(rpmNow, speed_for_gear, dt);
-
-    static int last_displayed = -1;
-
-    if (gear != last_displayed) {
-
-        if(gear == -1) {
-            //update_label_if_needed(ui_label_gear_value, "N", purple_color);
-        } else {
-            char buf[2];
-            snprintf(buf, sizeof(buf), "%d", gear);
-            //update_label_if_needed(ui_label_gear_value, buf, purple_color);
-        }
-
-        last_displayed = gear;
-    }
 
     if (SENSOR_SOURCE == SENSOR_SOURCE_CAN){
         float speed_mph = g_speed_mph;
@@ -673,17 +347,6 @@ void gauge_timer(lv_timer_t * t) {
 
         char afr_buf[12];
         snprintf(afr_buf, sizeof(afr_buf), "%4.1f", g_gauge_data.afr);
-
-        char boost_buf[12];
-        snprintf(boost_buf, sizeof(boost_buf), "%4.1f", g_gauge_data.boost_psi);
-
-
-        char fuel_comp_buf[12];
-        snprintf(fuel_comp_buf, sizeof(fuel_comp_buf), "%4.1f", g_gauge_data.fuel_comp);
-        //***Update afr and boost and fuel_comp labels here, 
-        // example -> update_label_if_needed(ui_label_odometer_value, odo_buf, green_color);
-        // update_label_if_needed();
-        // update_label_if_needed();
     
     }
 
@@ -758,7 +421,7 @@ static void speed_update_cb(void *arg){
 
     if (!has_fix) {
         if (last_fix) {
-            lv_label_set_text(label, "--");
+            //lv_label_set_text(label, "--");
             last_fix = false;
         }
         return;
@@ -775,7 +438,7 @@ static void speed_update_cb(void *arg){
         //static char buf[8];
         //snprintf(buf, sizeof(buf), "%d", speed);
         //lv_label_set_text(label, buf);
-        lv_img_set_angle(label,-670+speed*35); // sets speed to needle 35 is 3.5 degrees
+        lv_img_set_angle(label,speed*35-670); // -670 = 0, sets speed to needle 35 is 3.5 degrees
                 
         last_speed = speed;
         last_fix = true;
@@ -885,12 +548,9 @@ static void adc_global_init(void) {
     // ADC1 channels
     adc1_config_channel_atten(WATER_TEMP_ADC_CHANNEL, ADC_ATTEN_DB_11);
     adc1_config_channel_atten(OIL_PRESSURE_ADC_CHANNEL, ADC_ATTEN_DB_11);
-    adc1_config_channel_atten(FUEL_PRESSURE_ADC_CHANNEL, ADC_ATTEN_DB_11);
     
 
     // ADC2 channels
-    adc2_config_channel_atten(BOOST_ADC_CHANNEL, ADC_ATTEN_DB_11);
-    adc2_config_channel_atten(OIL_TEMP_ADC_CHANNEL, ADC_ATTEN_DB_11);
     adc2_config_channel_atten(FUEL_ADC_CHANNEL, ADC_ATTEN_DB_11);
     adc2_config_channel_atten(AFR_ADC_CHANNEL, ADC_ATTEN_DB_11);
 
@@ -950,22 +610,14 @@ static void adc_task(void *arg) {
             int raw_water = sample_sum_adc1(WATER_TEMP_ADC_CHANNEL, FILTER_SAMPLES_DEFAULT);
             float R_water = read_temp_resistance(raw_water);
 
-            // Oil temp (ADC2)
-            // adc2_get_raw(OIL_TEMP_ADC_CHANNEL, ADC_WIDTH, &raw_oil);
-            int raw_oil = sample_sum_adc2(OIL_TEMP_ADC_CHANNEL, FILTER_SAMPLES_DEFAULT);
-            float R_oil = read_temp_resistance(raw_oil);
 
             float water_new = resistance_to_F(R_water);
-            float oil_new   = resistance_to_F(R_oil);
 
             if (water_filtered < 0) water_filtered = water_new;
-            if (oil_filtered   < 0) oil_filtered   = oil_new;
 
             water_filtered = water_filtered * 0.95f + water_new * 0.05f;
-            oil_filtered   = oil_filtered   * 0.95f + oil_new   * 0.05f;
 
             g_gauge_data.water_temp_f = water_filtered;
-            g_gauge_data.oil_temp_f   = oil_filtered;
         }
 
         // ---------- Pressure Update ---------- //
@@ -977,45 +629,17 @@ static void adc_task(void *arg) {
             float raw_oil_press = sample_sum_adc1(OIL_PRESSURE_ADC_CHANNEL, FILTER_SAMPLES_DEFAULT);
             float voltage_oil = ((float)raw_oil_press / 4095.0f) * ADC_VREF;
 
-            // Fuel pressure (ADC1)
-            //int raw_fuel_press = adc1_get_raw(FUEL_PRESSURE_ADC_CHANNEL);
-            int raw_fuel_press = sample_sum_adc1(FUEL_PRESSURE_ADC_CHANNEL, FILTER_SAMPLES_DEFAULT);
-            float voltage_fuel = ((float)raw_fuel_press / 4095.0f) * ADC_VREF;
-    
 
             float oil_press_new = voltage_to_psi(voltage_oil * OIL_FUEL_DIVIDER_SCALE);
-            float fuel_press_new = voltage_to_psi(voltage_fuel * OIL_FUEL_DIVIDER_SCALE);
 
             if (oil_press_filtered < 0) oil_press_filtered = oil_press_new;
-            if (fuel_press_filtered < 0) fuel_press_filtered = fuel_press_new;
 
             oil_press_filtered =
                 oil_press_filtered + oil_fuel_pressure_alpha * (oil_press_new - oil_press_filtered);
 
-            fuel_press_filtered =
-                fuel_press_filtered + oil_fuel_pressure_alpha * (fuel_press_new - fuel_press_filtered);
 
-
-            g_gauge_data.fuel_pressure_psi = fuel_press_filtered;
             g_gauge_data.oil_pressure_psi = oil_press_filtered;
 
-            // ---------- Boost pressure (ADC2) ----------
-            int raw_boost;
-            adc2_get_raw(BOOST_ADC_CHANNEL, ADC_WIDTH, &raw_boost);
-            float voltage_boost = ((float)raw_boost / 4095.0f) * ADC_VREF;
-            // Undo any voltage divider if present
-            float sensor_voltage = voltage_boost / BOOST_DIVIDER_SCALE;
-            // Prosport sender scales ~1V @ 0 PSI to ~4V @ ~43.5 PSI
-            float pressure_psi = (sensor_voltage - BOOST_ZERO_OFFSET) * 14.5f;
-            pressure_psi += BOOST_OFFSET;
-            // Clamp to realistic limits
-            if (pressure_psi < -15.0f) pressure_psi = -15.0f;
-            if (pressure_psi > 45.0f)  pressure_psi = 45.0f;
-            //Simple EMA filter
-            static float boost_filtered = 0.0f;
-            boost_filtered = boost_filtered * (1 - BOOST_FILTER_ALPHA)
-                            + pressure_psi * BOOST_FILTER_ALPHA;
-            g_gauge_data.boost_psi = boost_filtered;
 
         }
 
@@ -1099,19 +723,14 @@ static void adc_task(void *arg) {
 
             gauge_payload_t *p = (gauge_payload_t *)&buf[2];
 
-            p->oil_temp      = (uint16_t)(g_gauge_data.oil_temp_f * 10.0f);
             p->water_temp    = (uint16_t)(g_gauge_data.water_temp_f * 10.0f);
             p->oil_pressure  = (uint16_t)(g_gauge_data.oil_pressure_psi * 10.0f);
-            p->fuel_pressure = (uint16_t)(g_gauge_data.fuel_pressure_psi * 10.0f);
             p->fuel_level    = (uint16_t)(g_gauge_data.fuel_level_pct * 10.0f);
             p->afr           = (uint16_t)(g_gauge_data.afr * 10.0f);
-            p->boost         = (int16_t)(g_gauge_data.boost_psi * 10.0f);
             
             uint64_t lap_us = lap_timer_get_current_us();
             int32_t  delta_us = lap_timer_get_delta_us();
 
-            p->lap_time_ms  = (uint32_t)(lap_us / 1000);
-            p->lap_delta_ms = (int32_t)(delta_us / 1000);
 
             uint16_t crc = crc16_ccitt(&buf[1], GAUGE_PKT_LEN - 3);
             memcpy(&buf[GAUGE_PKT_LEN - 2], &crc, 2);
@@ -1126,14 +745,11 @@ static void adc_task(void *arg) {
                     "Fuel:  %%=%u",
                     fuel_percent);
             ESP_LOGI(TAG_TEMP,
-                    "Water: %.1fF  Oil: %.1fF",
+                    "Water: %.1fF",
                     g_gauge_data.water_temp_f,
-                    g_gauge_data.oil_temp_f);
             ESP_LOGI(TAG_PRESSURE,
-                    "Oil PSI: %.2f  Fuel PSI: %.2f Boost PSI: %.2f ",
+                    "Oil PSI: %.2f", 
                     g_gauge_data.oil_pressure_psi,
-                    g_gauge_data.fuel_pressure_psi,
-                    g_gauge_data.boost_psi);
             ESP_LOGI(TAG_AFR,
                     "AFR: %.2f",
                     g_gauge_data.afr);
@@ -1185,8 +801,6 @@ static void can_mapping_task(void *arg){
     while (1){
         int64_t now_ms = esp_timer_get_time() / 1000;
 
-        // ---------- Drivetrain ----------
-        rpmNow = can_data.rpm;
 
         // CAN speed usually in KPH
         g_speed_mph = can_data.speed * 0.621371f;
@@ -1210,8 +824,6 @@ static void can_mapping_task(void *arg){
         g_gauge_data.water_temp_f     = can_data.coolant_temp;
         g_gauge_data.oil_pressure_psi = can_data.oil_pressure;
         g_gauge_data.afr = can_data.air_fuel_ratio;
-        g_gauge_data.boost_psi = can_data.boost;
-        g_gauge_data.fuel_comp = can_data.fuel_comp;
         
 
         // ---------- UART TX ----------
@@ -1226,19 +838,10 @@ static void can_mapping_task(void *arg){
 
             gauge_payload_t *p = (gauge_payload_t *)&buf[2];
 
-            p->oil_temp      = (uint16_t)(g_gauge_data.oil_temp_f * 10.0f);
             p->water_temp    = (uint16_t)(g_gauge_data.water_temp_f * 10.0f);
             p->oil_pressure  = (uint16_t)(g_gauge_data.oil_pressure_psi * 10.0f);
-            p->fuel_pressure = (uint16_t)(g_gauge_data.fuel_pressure_psi * 10.0f);
             p->fuel_level    = (uint16_t)(g_gauge_data.fuel_level_pct * 10.0f);
             p->afr           = (uint16_t)(g_gauge_data.afr * 10.0f);
-            p->boost         = (int16_t)(g_gauge_data.boost_psi * 10.0f);
-
-            uint64_t lap_us = lap_timer_get_current_us();
-            int32_t  delta_us = lap_timer_get_delta_us();
-
-            p->lap_time_ms  = (uint32_t)(lap_us / 1000);
-            p->lap_delta_ms = (int32_t)(delta_us / 1000);
 
             uint16_t crc = crc16_ccitt(&buf[1], GAUGE_PKT_LEN - 3);
             memcpy(&buf[GAUGE_PKT_LEN - 2], &crc, 2);
@@ -1271,7 +874,6 @@ void app_main(void) {
 
     adc_global_init();
     init_label_styles();
-    tach_init();
     odometer_init();
 
     ui_init();
@@ -1286,7 +888,6 @@ void app_main(void) {
         xTaskCreatePinnedToCore(canbus_task,"can_rx",4096,NULL,10,NULL,0);
         xTaskCreatePinnedToCore(can_mapping_task,"can_mapping_task",4096,NULL,10,NULL,1);
     } else {
-        xTaskCreatePinnedToCore(tach_task, "tach_task", 4096, NULL, 10, NULL, 0);
         xTaskCreatePinnedToCore(gps_task, "gps_task", 4096, NULL, 5, NULL, 0);
         xTaskCreatePinnedToCore(adc_task, "adc_uart_task", 4096, NULL, 5, NULL, 0);
     }
