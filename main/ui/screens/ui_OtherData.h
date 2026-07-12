@@ -15,9 +15,13 @@ extern void ui_OtherData_screen_init(void);
 extern void ui_OtherData_screen_destroy(void);
 extern void ui_event_OtherData( lv_event_t * e);
 extern lv_obj_t *ui_OtherData;
-extern lv_obj_t *ui_AFRARC;
-extern lv_obj_t *ui_AFRLabel;
-extern lv_obj_t *ui_AFRValue;
+extern lv_obj_t *ui_Image1;
+extern lv_obj_t *ui_AfrV;
+extern lv_obj_t *ui_TempV;
+extern lv_obj_t *ui_SpeedV;
+extern lv_obj_t *ui_SpeedD;
+extern lv_obj_t *ui_AfrD;
+extern lv_obj_t *ui_TempD;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

@@ -15,7 +15,6 @@ extern void ui_MainSpeedo_screen_init(void);
 extern void ui_MainSpeedo_screen_destroy(void);
 extern void ui_event_MainSpeedo( lv_event_t * e);
 extern lv_obj_t *ui_MainSpeedo;
-extern lv_obj_t *ui_Speedobackground;
 extern lv_obj_t *ui_Odometer1;
 extern lv_obj_t *ui_Odometer2;
 extern lv_obj_t *ui_Odometer3;

@@ -16,9 +16,9 @@ extern "C" {
 #include "ui_events.h"
 
 ///////////////////// SCREENS ////////////////////
+#include "screens/ui_BootScreen.h"
 #include "screens/ui_MainSpeedo.h"
 #include "screens/ui_OtherData.h"
-#include "screens/ui_BootScreen.h"
 
 ///////////////////// VARIABLES ////////////////////
 
@@ -26,13 +26,16 @@ extern "C" {
 extern lv_obj_t *ui____initial_actions0;
 
 // IMAGES AND IMAGE SETS
+LV_IMG_DECLARE( ui_img_bootscreen_png);   // assets/bootscreen.png
 LV_IMG_DECLARE( ui_img_gauge_background_png);   // assets/gauge_background.png
 LV_IMG_DECLARE( ui_img_gauge_needle_png);   // assets/gauge_needle.png
-LV_IMG_DECLARE( ui_img_bootscreen_png);   // assets/bootscreen.png
+LV_IMG_DECLARE( ui_img_gauge_png);   // assets/gauge.png
+LV_IMG_DECLARE( ui_img_needle_no_shadow65_png);   // assets/needle_no_shadow65.png
 
 // FONTS
 LV_FONT_DECLARE( ui_font_DIN_1451_Mittelschrift_);
 LV_FONT_DECLARE( ui_font_DIN_1451__96);
+LV_FONT_DECLARE( ui_font_DSGE7_Classic_80);
 
 // UI INIT
 void ui_init(void);

@@ -13,7 +13,7 @@ lv_obj_t *ui_BootScreen = NULL;lv_obj_t *ui_Image2 = NULL;
 void ui_BootScreen_screen_init(void)
 {
 ui_BootScreen = lv_obj_create(NULL);
-lv_obj_clear_flag( ui_BootScreen, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
+lv_obj_clear_flag( ui_BootScreen, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_obj_set_style_bg_color(ui_BootScreen, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT );
 lv_obj_set_style_bg_opa(ui_BootScreen, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
 

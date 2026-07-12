@@ -5,7 +5,7 @@
         "--query-driver=/Users/dcattewell/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20251107/riscv32-esp-elf/bin/riscv32-esp-elf-gcc"
     ],
     "idf.flashType": "UART",
-    "idf.port": "/dev/tty.usbmodem21101",
+    "idf.port": "/dev/tty.usbmodem142101",
     "idf.currentSetup": "/Users/dcattewell/.espressif/v5.5.3/esp-idf",
     "idf.customExtraVars": {
         "IDF_TARGET": "esp32p4"

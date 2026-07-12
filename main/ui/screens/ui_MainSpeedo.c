@@ -5,13 +5,18 @@
 
 #include "../ui.h"
 
-lv_obj_t *ui_MainSpeedo = NULL;lv_obj_t *ui_Speedobackground = NULL;lv_obj_t *ui_Odometer1 = NULL;lv_obj_t *ui_Odometer2 = NULL;lv_obj_t *ui_Odometer3 = NULL;lv_obj_t *ui_Odometer4 = NULL;lv_obj_t *ui_Odometer5 = NULL;lv_obj_t *ui_Odometer6 = NULL;lv_obj_t *ui_SpeedoNeedle = NULL;
+lv_obj_t *ui_MainSpeedo = NULL;lv_obj_t *ui_Odometer1 = NULL;lv_obj_t *ui_Odometer2 = NULL;lv_obj_t *ui_Odometer3 = NULL;lv_obj_t *ui_Odometer4 = NULL;lv_obj_t *ui_Odometer5 = NULL;lv_obj_t *ui_Odometer6 = NULL;lv_obj_t *ui_SpeedoNeedle = NULL;
 // event funtions
 void ui_event_MainSpeedo( lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
 
-if ( event_code == LV_EVENT_PRESSED) {
-      _ui_screen_change( &ui_OtherData, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_OtherData_screen_init);
+if ( event_code == LV_EVENT_GESTURE &&  lv_indev_get_gesture_dir(lv_indev_get_act()) == LV_DIR_LEFT  ) {
+lv_indev_wait_release(lv_indev_get_act());
+      _ui_screen_change( &ui_OtherData, LV_SCR_LOAD_ANIM_MOVE_LEFT, 500, 0, &ui_OtherData_screen_init);
+}
+if ( event_code == LV_EVENT_GESTURE &&  lv_indev_get_gesture_dir(lv_indev_get_act()) == LV_DIR_RIGHT  ) {
+lv_indev_wait_release(lv_indev_get_act());
+      _ui_screen_change( &ui_OtherData, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 500, 0, &ui_OtherData_screen_init);
 }
 }
 
@@ -20,189 +25,90 @@ if ( event_code == LV_EVENT_PRESSED) {
 void ui_MainSpeedo_screen_init(void)
 {
 ui_MainSpeedo = lv_obj_create(NULL);
-lv_obj_clear_flag( ui_MainSpeedo, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
+lv_obj_clear_flag( ui_MainSpeedo, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_obj_set_style_bg_color(ui_MainSpeedo, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT );
 lv_obj_set_style_bg_opa(ui_MainSpeedo, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_bg_img_src( ui_MainSpeedo, &ui_img_gauge_background_png, LV_PART_MAIN | LV_STATE_DEFAULT );
 
-ui_Speedobackground = lv_img_create(ui_MainSpeedo);
-lv_img_set_src(ui_Speedobackground, &ui_img_gauge_background_png);
-lv_obj_set_width( ui_Speedobackground, LV_SIZE_CONTENT);  /// 933
-lv_obj_set_height( ui_Speedobackground, LV_SIZE_CONTENT);   /// 932
-lv_obj_set_align( ui_Speedobackground, LV_ALIGN_CENTER );
-lv_obj_add_flag( ui_Speedobackground, LV_OBJ_FLAG_ADV_HITTEST );   /// Flags
-lv_obj_clear_flag( ui_Speedobackground, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
-lv_img_set_zoom(ui_Speedobackground,183);
-
-ui_Odometer1 = lv_label_create(ui_Speedobackground);
-lv_obj_set_width( ui_Odometer1, 34);
-lv_obj_set_height( ui_Odometer1, 50);
-lv_obj_set_x( ui_Odometer1, -114 );
-lv_obj_set_y( ui_Odometer1, 139 );
+ui_Odometer1 = lv_label_create(ui_MainSpeedo);
+lv_obj_set_width( ui_Odometer1, LV_SIZE_CONTENT);  /// 60
+lv_obj_set_height( ui_Odometer1, LV_SIZE_CONTENT);   /// 60
+lv_obj_set_x( ui_Odometer1, -115 );
+lv_obj_set_y( ui_Odometer1, 138 );
 lv_obj_set_align( ui_Odometer1, LV_ALIGN_CENTER );
-lv_label_set_text(ui_Odometer1,"0");
+lv_label_set_text(ui_Odometer1,"-");
 lv_obj_clear_flag( ui_Odometer1, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_obj_set_style_text_color(ui_Odometer1, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT );
 lv_obj_set_style_text_opa(ui_Odometer1, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_letter_space(ui_Odometer1, 20, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_line_space(ui_Odometer1, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_align(ui_Odometer1, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN| LV_STATE_DEFAULT);
 lv_obj_set_style_text_font(ui_Odometer1, &ui_font_DIN_1451_Mittelschrift_, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_blend_mode(ui_Odometer1, LV_BLEND_MODE_NORMAL, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_left(ui_Odometer1, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_right(ui_Odometer1, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_top(ui_Odometer1, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_bottom(ui_Odometer1, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_row(ui_Odometer1, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_column(ui_Odometer1, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_min_width(ui_Odometer1, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_max_width(ui_Odometer1, 8192, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_min_height(ui_Odometer1, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_max_height(ui_Odometer1, 8192, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_transform_angle(ui_Odometer1, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
 
-ui_Odometer2 = lv_label_create(ui_Speedobackground);
-lv_obj_set_width( ui_Odometer2, 34);
-lv_obj_set_height( ui_Odometer2, 50);
-lv_obj_set_x( ui_Odometer2, -68 );
-lv_obj_set_y( ui_Odometer2, 140 );
+ui_Odometer2 = lv_label_create(ui_MainSpeedo);
+lv_obj_set_width( ui_Odometer2, LV_SIZE_CONTENT);  /// 60
+lv_obj_set_height( ui_Odometer2, LV_SIZE_CONTENT);   /// 60
+lv_obj_set_x( ui_Odometer2, -67 );
+lv_obj_set_y( ui_Odometer2, 137 );
 lv_obj_set_align( ui_Odometer2, LV_ALIGN_CENTER );
-lv_label_set_text(ui_Odometer2,"9");
+lv_label_set_text(ui_Odometer2,"-");
 lv_obj_clear_flag( ui_Odometer2, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_obj_set_style_text_color(ui_Odometer2, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT );
 lv_obj_set_style_text_opa(ui_Odometer2, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_letter_space(ui_Odometer2, 20, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_line_space(ui_Odometer2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_align(ui_Odometer2, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN| LV_STATE_DEFAULT);
 lv_obj_set_style_text_font(ui_Odometer2, &ui_font_DIN_1451_Mittelschrift_, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_blend_mode(ui_Odometer2, LV_BLEND_MODE_NORMAL, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_left(ui_Odometer2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_right(ui_Odometer2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_top(ui_Odometer2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_bottom(ui_Odometer2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_row(ui_Odometer2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_column(ui_Odometer2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_min_width(ui_Odometer2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_max_width(ui_Odometer2, 8192, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_min_height(ui_Odometer2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_max_height(ui_Odometer2, 8192, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_transform_angle(ui_Odometer2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
 
-ui_Odometer3 = lv_label_create(ui_Speedobackground);
-lv_obj_set_width( ui_Odometer3, 34);
-lv_obj_set_height( ui_Odometer3, 50);
-lv_obj_set_x( ui_Odometer3, -20 );
-lv_obj_set_y( ui_Odometer3, 140 );
+ui_Odometer3 = lv_label_create(ui_MainSpeedo);
+lv_obj_set_width( ui_Odometer3, LV_SIZE_CONTENT);  /// 60
+lv_obj_set_height( ui_Odometer3, LV_SIZE_CONTENT);   /// 60
+lv_obj_set_x( ui_Odometer3, -21 );
+lv_obj_set_y( ui_Odometer3, 138 );
 lv_obj_set_align( ui_Odometer3, LV_ALIGN_CENTER );
-lv_label_set_text(ui_Odometer3,"5");
+lv_label_set_text(ui_Odometer3,"-");
 lv_obj_clear_flag( ui_Odometer3, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_obj_set_style_text_color(ui_Odometer3, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT );
 lv_obj_set_style_text_opa(ui_Odometer3, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_letter_space(ui_Odometer3, 20, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_line_space(ui_Odometer3, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_align(ui_Odometer3, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN| LV_STATE_DEFAULT);
 lv_obj_set_style_text_font(ui_Odometer3, &ui_font_DIN_1451_Mittelschrift_, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_blend_mode(ui_Odometer3, LV_BLEND_MODE_NORMAL, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_left(ui_Odometer3, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_right(ui_Odometer3, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_top(ui_Odometer3, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_bottom(ui_Odometer3, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_row(ui_Odometer3, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_column(ui_Odometer3, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_min_width(ui_Odometer3, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_max_width(ui_Odometer3, 8192, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_min_height(ui_Odometer3, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_max_height(ui_Odometer3, 8192, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_transform_angle(ui_Odometer3, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
 
-ui_Odometer4 = lv_label_create(ui_Speedobackground);
-lv_obj_set_width( ui_Odometer4, 34);
-lv_obj_set_height( ui_Odometer4, 50);
-lv_obj_set_x( ui_Odometer4, 28 );
-lv_obj_set_y( ui_Odometer4, 140 );
+ui_Odometer4 = lv_label_create(ui_MainSpeedo);
+lv_obj_set_width( ui_Odometer4, LV_SIZE_CONTENT);  /// 60
+lv_obj_set_height( ui_Odometer4, LV_SIZE_CONTENT);   /// 60
+lv_obj_set_x( ui_Odometer4, 27 );
+lv_obj_set_y( ui_Odometer4, 138 );
 lv_obj_set_align( ui_Odometer4, LV_ALIGN_CENTER );
-lv_label_set_text(ui_Odometer4,"9");
+lv_label_set_text(ui_Odometer4,"-");
 lv_obj_clear_flag( ui_Odometer4, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_obj_set_style_text_color(ui_Odometer4, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT );
 lv_obj_set_style_text_opa(ui_Odometer4, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_letter_space(ui_Odometer4, 20, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_line_space(ui_Odometer4, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_align(ui_Odometer4, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN| LV_STATE_DEFAULT);
 lv_obj_set_style_text_font(ui_Odometer4, &ui_font_DIN_1451_Mittelschrift_, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_blend_mode(ui_Odometer4, LV_BLEND_MODE_NORMAL, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_left(ui_Odometer4, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_right(ui_Odometer4, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_top(ui_Odometer4, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_bottom(ui_Odometer4, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_row(ui_Odometer4, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_column(ui_Odometer4, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_min_width(ui_Odometer4, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_max_width(ui_Odometer4, 8192, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_min_height(ui_Odometer4, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_max_height(ui_Odometer4, 8192, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_transform_angle(ui_Odometer4, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
 
-ui_Odometer5 = lv_label_create(ui_Speedobackground);
-lv_obj_set_width( ui_Odometer5, 34);
-lv_obj_set_height( ui_Odometer5, 50);
-lv_obj_set_x( ui_Odometer5, 75 );
-lv_obj_set_y( ui_Odometer5, 139 );
+ui_Odometer5 = lv_label_create(ui_MainSpeedo);
+lv_obj_set_width( ui_Odometer5, LV_SIZE_CONTENT);  /// 60
+lv_obj_set_height( ui_Odometer5, LV_SIZE_CONTENT);   /// 60
+lv_obj_set_x( ui_Odometer5, 74 );
+lv_obj_set_y( ui_Odometer5, 138 );
 lv_obj_set_align( ui_Odometer5, LV_ALIGN_CENTER );
-lv_label_set_text(ui_Odometer5,"4");
+lv_label_set_text(ui_Odometer5,"-");
 lv_obj_clear_flag( ui_Odometer5, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_obj_set_style_text_color(ui_Odometer5, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT );
 lv_obj_set_style_text_opa(ui_Odometer5, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_letter_space(ui_Odometer5, 20, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_line_space(ui_Odometer5, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_align(ui_Odometer5, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN| LV_STATE_DEFAULT);
 lv_obj_set_style_text_font(ui_Odometer5, &ui_font_DIN_1451_Mittelschrift_, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_blend_mode(ui_Odometer5, LV_BLEND_MODE_NORMAL, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_left(ui_Odometer5, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_right(ui_Odometer5, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_top(ui_Odometer5, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_bottom(ui_Odometer5, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_row(ui_Odometer5, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_column(ui_Odometer5, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_min_width(ui_Odometer5, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_max_width(ui_Odometer5, 8192, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_min_height(ui_Odometer5, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_max_height(ui_Odometer5, 8192, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_transform_angle(ui_Odometer5, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
 
-ui_Odometer6 = lv_label_create(ui_Speedobackground);
-lv_obj_set_width( ui_Odometer6, 34);
-lv_obj_set_height( ui_Odometer6, 50);
-lv_obj_set_x( ui_Odometer6, 123 );
-lv_obj_set_y( ui_Odometer6, 139 );
+ui_Odometer6 = lv_label_create(ui_MainSpeedo);
+lv_obj_set_width( ui_Odometer6, LV_SIZE_CONTENT);  /// 60
+lv_obj_set_height( ui_Odometer6, LV_SIZE_CONTENT);   /// 60
+lv_obj_set_x( ui_Odometer6, 122 );
+lv_obj_set_y( ui_Odometer6, 138 );
 lv_obj_set_align( ui_Odometer6, LV_ALIGN_CENTER );
-lv_label_set_text(ui_Odometer6,"4");
+lv_label_set_text(ui_Odometer6,"-");
 lv_obj_clear_flag( ui_Odometer6, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_obj_set_style_text_color(ui_Odometer6, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT );
 lv_obj_set_style_text_opa(ui_Odometer6, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_letter_space(ui_Odometer6, 20, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_line_space(ui_Odometer6, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_text_align(ui_Odometer6, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN| LV_STATE_DEFAULT);
 lv_obj_set_style_text_font(ui_Odometer6, &ui_font_DIN_1451_Mittelschrift_, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_blend_mode(ui_Odometer6, LV_BLEND_MODE_NORMAL, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_left(ui_Odometer6, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_right(ui_Odometer6, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_top(ui_Odometer6, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_bottom(ui_Odometer6, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_row(ui_Odometer6, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_pad_column(ui_Odometer6, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_min_width(ui_Odometer6, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_max_width(ui_Odometer6, 8192, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_min_height(ui_Odometer6, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_max_height(ui_Odometer6, 8192, LV_PART_MAIN| LV_STATE_DEFAULT);
-lv_obj_set_style_transform_angle(ui_Odometer6, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
 
-ui_SpeedoNeedle = lv_img_create(ui_Speedobackground);
+ui_SpeedoNeedle = lv_img_create(ui_MainSpeedo);
 lv_img_set_src(ui_SpeedoNeedle, &ui_img_gauge_needle_png);
 lv_obj_set_width( ui_SpeedoNeedle, LV_SIZE_CONTENT);  /// 655
 lv_obj_set_height( ui_SpeedoNeedle, LV_SIZE_CONTENT);   /// 104
-lv_obj_set_x( ui_SpeedoNeedle, -52 );
-lv_obj_set_y( ui_SpeedoNeedle, 420 );
-lv_obj_add_flag( ui_SpeedoNeedle, LV_OBJ_FLAG_ADV_HITTEST );   /// Flags
-lv_obj_clear_flag( ui_SpeedoNeedle, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
+lv_obj_set_x( ui_SpeedoNeedle, -189 );
+lv_obj_set_y( ui_SpeedoNeedle, 288 );
+lv_obj_clear_flag( ui_SpeedoNeedle, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_img_set_pivot(ui_SpeedoNeedle,522,52);
 lv_img_set_angle(ui_SpeedoNeedle,-670);
 lv_img_set_zoom(ui_SpeedoNeedle,150);
@@ -217,7 +123,6 @@ void ui_MainSpeedo_screen_destroy(void)
 
 // NULL screen variables
 ui_MainSpeedo= NULL;
-ui_Speedobackground= NULL;
 ui_Odometer1= NULL;
 ui_Odometer2= NULL;
 ui_Odometer3= NULL;

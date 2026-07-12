@@ -212,10 +212,14 @@ static void update_afr(float new_value){
     snprintf(buf, sizeof(buf), "%4.1f", new_value);
 
     // Only update text if changed
-    const char *old_text = lv_label_get_text(ui_AFRValue);
+    const char *old_text = lv_label_get_text(ui_AfrV);
     if (strcmp(old_text, buf) != 0) {
-        lv_label_set_text(ui_AFRValue,buf);
-        lv_arc_set_value(ui_AFRARC, (int16_t)lround(new_value * 10));
+        lv_label_set_text(ui_AfrV,buf);
+        int16_t afr_angle=(new_value-10.0)*(1640-845)/8+845;
+        ESP_LOGI("AFR", "afr new_value=%.1f angle=%d", new_value, afr_angle);
+        if (afr_angle>1640) afr_angle=1640;
+        if (afr_angle<845) afr_angle=845;
+        lv_img_set_angle(ui_AfrD, afr_angle);
     }
 
 }
@@ -230,10 +234,11 @@ static void init_label_styles(void){
     blue_color = lv_palette_main(LV_PALETTE_CYAN);
 }
 
-static void update_odo_if_needed(lv_obj_t *label, char digit) {
-    char new_value[2] = { digit, '\0' };
+static void update_odo_if_needed(lv_obj_t *label, int digit) {
+    char new_value[2] = { (char)('0' + digit), '\0' };
     const char *old_text = lv_label_get_text(label);
     if (strcmp(old_text, new_value) != 0) {
+        ESP_LOGI("ODOMETER", "old_text=%s new_value=%s", old_text, new_value);
         lv_label_set_text(label, new_value);
     }
 }
@@ -308,6 +313,7 @@ void gauge_timer(lv_timer_t * t) {
 
     //update ODOMETER
     int miles = odometer_get_miles();
+    //ESP_LOGI("ODOMETER", "ODOMETER=%d",miles);
     int digit1 = ((miles / 100000) % 10);  // hundred-thousands
     int digit2 = ((miles / 10000) % 10);   // ten-thousands
     int digit3 = ((miles / 1000) % 10);    // thousands
@@ -421,7 +427,7 @@ static void speed_update_cb(void *arg){
 
     if (!has_fix) {
         if (last_fix) {
-            //lv_label_set_text(label, "--");
+            lv_label_set_text(ui_SpeedV, "--");
             last_fix = false;
         }
         return;
@@ -433,12 +439,17 @@ static void speed_update_cb(void *arg){
         speed_mph = 0.0f;
 
     int speed = (int)speed_mph;
+    ESP_LOGI("Speed", "speed=%d",speed);
 
     if (!last_fix || speed != last_speed) {
-        //static char buf[8];
-        //snprintf(buf, sizeof(buf), "%d", speed);
-        //lv_label_set_text(label, buf);
-        lv_img_set_angle(label,speed*35-670); // -670 = 0, sets speed to needle 35 is 3.5 degrees
+        static char buf[8];
+        snprintf(buf, sizeof(buf), "%d", speed);
+        lv_label_set_text(ui_SpeedV, buf);
+        if (speed>=110) {
+            lv_img_set_angle(ui_SpeedD,-600);}
+        else {
+            lv_img_set_angle(ui_SpeedD,595 -speed*1143/100);}// 595 = 0, -548=100, 1143/100 = 11.43 per km, 1.143 deg
+         
                 
         last_speed = speed;
         last_fix = true;
@@ -857,6 +868,11 @@ static void can_mapping_task(void *arg){
 
 //------------------------------------------------------------------------//
 
+static void boot_to_main_speedo_cb(lv_timer_t *timer) {
+    lv_timer_del(timer);
+    _ui_screen_change(&ui_MainSpeedo, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_MainSpeedo_screen_init);
+}
+
 void app_main(void) {
     // Boot sequence: display/LVGL first, then hardware inputs, persistent
     // odometer state, UI construction, UARTs, and finally the data-source tasks.
@@ -878,6 +894,7 @@ void app_main(void) {
 
     ui_init();
     lv_timer_create(gauge_timer, 10, NULL);
+    lv_timer_create(boot_to_main_speedo_cb, 1000, NULL);
 
     uart_init(UART_PORT, UART_TX_PIN, UART_PIN_NO_CHANGE, UART_TX_BUF_SIZE, UART_BAUD_RATE); 
     uart_init(UART1_PORT, UART1_TX_PIN, UART_PIN_NO_CHANGE, UART_TX_BUF_SIZE, UART_BAUD_RATE); 
