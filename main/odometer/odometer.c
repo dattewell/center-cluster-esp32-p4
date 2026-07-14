@@ -23,7 +23,7 @@ typedef struct {
 
 static nvs_handle_t odo_handle;
 
-static uint64_t total_meters = 95944*1609;   // compiled default
+static uint64_t total_meters = 95944*1609.344;   // compiled default
 static uint64_t last_saved_meters = 0;
 static uint32_t current_version = 0;
 static bool use_slot_a = true;
@@ -184,5 +184,5 @@ uint64_t odometer_get_meters(void)
 
 int odometer_get_miles(void)
 {
-    return (int)(total_meters / 1609.344);
+    return (int)(total_meters / 1609.344 + 0.5);
 }

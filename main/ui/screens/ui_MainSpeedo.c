@@ -106,8 +106,8 @@ ui_SpeedoNeedle = lv_img_create(ui_MainSpeedo);
 lv_img_set_src(ui_SpeedoNeedle, &ui_img_gauge_needle_png);
 lv_obj_set_width( ui_SpeedoNeedle, LV_SIZE_CONTENT);  /// 655
 lv_obj_set_height( ui_SpeedoNeedle, LV_SIZE_CONTENT);   /// 104
-lv_obj_set_x( ui_SpeedoNeedle, -189 );
-lv_obj_set_y( ui_SpeedoNeedle, 288 );
+lv_obj_set_x( ui_SpeedoNeedle, -124 );
+lv_obj_set_y( ui_SpeedoNeedle, 359 );
 lv_obj_clear_flag( ui_SpeedoNeedle, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_img_set_pivot(ui_SpeedoNeedle,522,52);
 lv_img_set_angle(ui_SpeedoNeedle,-670);

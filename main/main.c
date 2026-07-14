@@ -45,34 +45,12 @@
 #define GPS_UART_NUM      UART_NUM_3
 #define GPS_TX_PIN        UART_PIN_NO_CHANGE  
 
-//UART0 Transaction - GPIO 37
-#define UART_TX_PIN 37
-
-//UART1 Transaction - GPIO30
-#define UART1_TX_PIN 30
 
 //Water Temp - GPIO 20
 #define WATER_TEMP_ADC_CHANNEL ADC1_CHANNEL_4
 
-//Oil Temp - GPIO 50
-//#define OIL_TEMP_ADC_CHANNEL ADC2_CHANNEL_1
-
-// Boost - GPIO 52
-//#define BOOST_ADC_CHANNEL ADC2_CHANNEL_3
-
-//Oil Pressure - GPIO 21
-#define OIL_PRESSURE_ADC_CHANNEL ADC1_CHANNEL_5
-
-//Fuel Pressure - GPIO 22
-//#define FUEL_PRESSURE_ADC_CHANNEL ADC1_CHANNEL_6
-
-//#define TACH_GPIO GPIO_NUM_5
-
 // AFR - GPIO 49
 #define AFR_ADC_CHANNEL ADC2_CHANNEL_0 
-
-// Fuel level - GPIO 51
-#define FUEL_ADC_CHANNEL ADC2_CHANNEL_2
 
 //--------------------------//
 
@@ -84,7 +62,7 @@
 #define UART_TX_BUF_SIZE 256
 #define UART_BAUD_RATE 2000000
 
-#define ENABLE_LOGS false
+#define ENABLE_LOGS true
 #define ADC_UPDATE_PERIOD_MS 10
 #define FILTER_SAMPLES_DEFAULT 8
 
@@ -98,9 +76,7 @@ static volatile float g_speed_mph = 0.0f;
 //--------------------------//
 
 //--------UPDATE/REFRESH_DELAYS------//
-#define FUEL_UPDATE_PERIOD 1000 // 1 updates a second
 #define TEMP_UPDATE_DELAY 250 // 4 updates a second
-#define PRESSURE_UPDATE_DELAY 50 // 20 updates a second
 #define AFR_UPDATE_DELAY   20 // 50 updates a second
 //-----------------------------------//
 
@@ -126,18 +102,6 @@ const float sensorR[] = {
 //------------------------------//
 
 
-//-------------PRESSURE-------------//
-#define ADC_ATTEN ADC_ATTEN_DB_11           
-#define ADC_UNIT ADC_UNIT_1
-#define OIL_FUEL_DIVIDER_SCALE ((10.0f + 20.0f) / 20.0f)
-
-#define PRESSURE_SENSOR_TABLE_SIZE 5
-const float Vpts[PRESSURE_SENSOR_TABLE_SIZE] = {0.5f, 1.3f, 2.5f, 3.7f, 4.5f};
-const float PSIpts[PRESSURE_SENSOR_TABLE_SIZE] = {0.0f, 29.0f, 72.5f, 116.0f, 145.0f};
-const float oil_fuel_pressure_alpha = 0.18f;
-//------------------------------//
-
-
 //-------------WIDEBAND AFR-------------//
 #define AFR_DIVIDER_GAIN ((68.0f + 33.0f) / 33.0f)   // ≈ 3.06
 #define AFR_OFFSET 0.7f 
@@ -145,25 +109,8 @@ const float oil_fuel_pressure_alpha = 0.18f;
 //--------------------------------------//
 
 
-//-------------FUEL-------------//
-#define FUEL_PULLUP_VOLTAGE   3.3f
-#define ADC_MAX               4095.0f
-#define PULLUP_RESISTOR_OHMS  150.0f
-#define FILTER_SAMPLES_FUEL   16
-#define BOOT_SETTLE_MS        1500
-
-static uint8_t fuel_percent = 0;
-static float fuel_ohms = 0.0f;
-static int64_t boot_time_ms = 0;
-//------------------------------//
-
-
-
 //-------------LOGGING------------//
 static const char *TAG_TEMP = "TEMP_SENSOR";
-static const char *TAG_PRESSURE = "PRESSURE_SENSOR";
-static const char *TAG_TACH = "TACH_SENSOR";
-static const char *TAG_FUEL = "FUEL_SENSOR";
 static const char *TAG_GPS = "GPS_SENSOR";
 static const char *TAG_AFR = "AFR_SENSOR";
 //--------------------------------//
@@ -174,8 +121,6 @@ static const char *TAG_AFR = "AFR_SENSOR";
 // fixed-point protocol expected by the remote gauge display.
 typedef struct {
     float water_temp_f;
-    float oil_pressure_psi;
-    float fuel_level_pct;
     float afr;
 } gauge_data_t;
 
@@ -186,103 +131,59 @@ static gauge_data_t g_gauge_data;
 // Values are multiplied by 10 to avoid sending floats over UART.
 typedef struct __attribute__((packed)) {
     uint16_t water_temp;     // °F x10
-    uint16_t oil_pressure;   // psi x10
-    uint16_t fuel_level;     // % x10
     uint16_t afr;            // AFR x10
 } gauge_payload_t;
 
 
 //---------------------------------------//
 
-static lv_color_t green_color;
-static lv_color_t red_color;
-static lv_color_t orange_color;
-static lv_color_t purple_color;
-static lv_color_t pink_color;
-static lv_color_t blue_color;
+typedef struct {
+    lv_obj_t *value_label;
+    lv_obj_t *needle;
+    const char *log_tag;
+    int16_t angle_min;
+    int16_t angle_max;
+} gauge_channel_t;
 
-static inline int constrain_int(int x, int low, int high) {
-    if (x < low) return low;
-    if (x > high) return high;
-    return x;
-}
-
-static void update_afr(float new_value){
+static void update_gauge_channel(const gauge_channel_t *ch, float new_value, int16_t angle){
     char buf[12];
     snprintf(buf, sizeof(buf), "%4.1f", new_value);
 
     // Only update text if changed
-    const char *old_text = lv_label_get_text(ui_AfrV);
-    if (strcmp(old_text, buf) != 0) {
-        lv_label_set_text(ui_AfrV,buf);
-        int16_t afr_angle=(new_value-10.0)*(1640-845)/8+845;
-        ESP_LOGI("AFR", "afr new_value=%.1f angle=%d", new_value, afr_angle);
-        if (afr_angle>1640) afr_angle=1640;
-        if (afr_angle<845) afr_angle=845;
-        lv_img_set_angle(ui_AfrD, afr_angle);
-    }
+    const char *old_text = lv_label_get_text(ch->value_label);
+    if (strcmp(old_text, buf) == 0) return;
 
+    lv_label_set_text(ch->value_label, buf);
+
+    if (angle > ch->angle_max) angle = ch->angle_max;
+    if (angle < ch->angle_min) angle = ch->angle_min;
+    ESP_LOGI(ch->log_tag, "value=%.1f angle=%d", new_value, angle);
+    lv_img_set_angle(ch->needle, angle);
 }
 
-static void init_label_styles(void){
-
-    green_color = lv_color_hex(0x28FF00);
-    red_color = lv_palette_main(LV_PALETTE_RED);
-    orange_color = lv_palette_main(LV_PALETTE_ORANGE);
-    purple_color = lv_palette_main(LV_PALETTE_PURPLE);
-    pink_color = lv_palette_main(LV_PALETTE_PINK);
-    blue_color = lv_palette_main(LV_PALETTE_CYAN);
+static void update_afr(float new_value){
+    int16_t afr_angle = (int16_t)((new_value - 10.0) * (1640 - 845) / 8 + 845);
+    gauge_channel_t ch = { ui_AfrV, ui_AfrD, "AFR", 845, 1640 };
+    update_gauge_channel(&ch, new_value, afr_angle);
 }
+
+static void update_water_temp(float new_value){
+    int16_t temp_angle = (int16_t)(2747 - (new_value - 40.0) * (2747 - 1940) / 80);
+    gauge_channel_t ch = { ui_TempV, ui_TempD, "TEMP", 1940, 2747 };
+    update_gauge_channel(&ch, new_value, temp_angle);
+}
+
 
 static void update_odo_if_needed(lv_obj_t *label, int digit) {
     char new_value[2] = { (char)('0' + digit), '\0' };
     const char *old_text = lv_label_get_text(label);
     if (strcmp(old_text, new_value) != 0) {
-        ESP_LOGI("ODOMETER", "old_text=%s new_value=%s", old_text, new_value);
+        #if ENABLE_LOGS
+            ESP_LOGI("ODOMETER", "old_text=%s new_value=%s", old_text, new_value);
+        #endif
         lv_label_set_text(label, new_value);
     }
 }
-
-static uint8_t clamp_u8(int val) {
-    if (val < 0) return 0;
-    if (val > 100) return 100;
-    return (uint8_t)val;
-}
-
-//-----------------------FUEL---------------------------//
-
-float fuel_pct_from_voltage(float v){
-    // Sender response is intentionally piecewise instead of a single straight
-    // line because the tank/sender geometry is non-linear, especially near
-    // empty where the display needs more useful resolution.
-    const float V_FULL  = 0.06f;
-    const float V_HALF  = 0.53f;
-    const float V_25    = 0.845f;
-    const float V_5     = 0.91f;
-    const float V_EMPTY = 0.95f;
-
-    if (v <= V_FULL)  return 100.0f;
-    if (v >= V_EMPTY) return 0.0f;
-
-    if (v <= V_HALF)
-        return 50.0f +
-               50.0f * (V_HALF - v) / (V_HALF - V_FULL);
-
-    if (v <= V_25)
-        return 25.0f +
-               25.0f * (V_25 - v) / (V_25 - V_HALF);
-
-    if (v <= V_5)
-        return 5.0f +
-               20.0f * (V_5 - v) / (V_5 - V_25);
-
-    return 5.0f *
-           (V_EMPTY - v) / (V_EMPTY - V_5);
-}
-
-//-----------------------------------------------------//
-
-
 
 //-----------------------TEMP--------------------------//
 
@@ -313,30 +214,25 @@ void gauge_timer(lv_timer_t * t) {
 
     //update ODOMETER
     int miles = odometer_get_miles();
-    //ESP_LOGI("ODOMETER", "ODOMETER=%d",miles);
-    int digit1 = ((miles / 100000) % 10);  // hundred-thousands
-    int digit2 = ((miles / 10000) % 10);   // ten-thousands
-    int digit3 = ((miles / 1000) % 10);    // thousands
-    int digit4 = ((miles / 100) % 10);     // hundreds
-    int digit5 = ((miles / 10) % 10);      // tens
-    int digit6 = ((miles % 10));             // units
-    update_odo_if_needed(ui_Odometer1, digit1);
-    update_odo_if_needed(ui_Odometer2, digit2);
-    update_odo_if_needed(ui_Odometer3, digit3);
-    update_odo_if_needed(ui_Odometer4, digit4);
-    update_odo_if_needed(ui_Odometer5, digit5);
-    update_odo_if_needed(ui_Odometer6, digit6);
+    #if ENABLE_LOGS
+        ESP_LOGI("ODOMETER", "miles=%d", miles);
+    #endif
+    //loop through each of the 6 odometer labels and update them with the corresponding digit
+    lv_obj_t *odo_labels[6] = {
+        ui_Odometer1, ui_Odometer2, ui_Odometer3, ui_Odometer4, ui_Odometer5, ui_Odometer6
+    };
+    int divisor = 100000;  // hundred-thousands down to units
+    for (int i = 0; i < 6; i++) {
+        update_odo_if_needed(odo_labels[i], (miles / divisor) % 10);
+        divisor /= 10;
+    }
 
 
     // update AFR
     update_afr(g_gauge_data.afr);
 
-    // -------- GEAR DETECTION -------- //
-    static int64_t last_us = 0;
-    int64_t now_us = esp_timer_get_time();
-    float dt = (last_us == 0) ? 0.01f :
-               (now_us - last_us) / 1000000.0f;
-    last_us = now_us;
+    //update temp
+    update_water_temp(g_gauge_data.water_temp_f);
 
 
     if (SENSOR_SOURCE == SENSOR_SOURCE_CAN){
@@ -378,22 +274,7 @@ float resistance_to_F(float R) {
     return tempF[0];
 }
 
-float voltage_to_psi(float v) {
 
-    // Below first threshold → clamp to 0 PSI
-    if (v <= Vpts[0]) return 0.0f;
-    // Above last threshold → clamp to max
-    if (v >= Vpts[4]) return PSIpts[4];
-
-    // Find segment and linearly interpolate
-    for (int i = 0; i < 4; i++) {
-        if (v < Vpts[i+1]) {
-            float t = (v - Vpts[i]) / (Vpts[i+1] - Vpts[i]);
-            return PSIpts[i] + t * (PSIpts[i+1] - PSIpts[i]);
-        }
-    }
-    return 0.0f;
-}
 
 static uint16_t crc16_ccitt(const uint8_t *data, uint16_t len)
 {
@@ -558,11 +439,9 @@ static void adc_global_init(void) {
 
     // ADC1 channels
     adc1_config_channel_atten(WATER_TEMP_ADC_CHANNEL, ADC_ATTEN_DB_11);
-    adc1_config_channel_atten(OIL_PRESSURE_ADC_CHANNEL, ADC_ATTEN_DB_11);
     
 
     // ADC2 channels
-    adc2_config_channel_atten(FUEL_ADC_CHANNEL, ADC_ATTEN_DB_11);
     adc2_config_channel_atten(AFR_ADC_CHANNEL, ADC_ATTEN_DB_11);
 
     ESP_LOGI("ADC", "ADC Global Init Complete");
@@ -595,19 +474,10 @@ static void adc_task(void *arg) {
     // slow-changing values like fuel do not waste cycles, while AFR/pressure
     // still update quickly enough for the display and UART stream.
     int64_t last_temp_ms     = 0;
-    int64_t last_pressure_ms = 0;
     int64_t last_afr_ms      = 0;
-    int64_t last_fuel_ms     = 0;
     int64_t last_tx_ms       = 0;
-    boot_time_ms = esp_timer_get_time() / 1000;
     static float water_filtered = -1;
-    static float oil_filtered = -1;
-    static float oil_press_filtered = -1;
-    static float fuel_press_filtered = -1;
-    static float fuel_filtered = 0.0f;
-    static bool fuel_initialized = false;
-    static bool fuel_ever_valid = false;
-
+    
 
     while (1) {
         int64_t now_ms = esp_timer_get_time() / 1000;
@@ -631,29 +501,6 @@ static void adc_task(void *arg) {
             g_gauge_data.water_temp_f = water_filtered;
         }
 
-        // ---------- Pressure Update ---------- //
-        if (now_ms - last_pressure_ms >= PRESSURE_UPDATE_DELAY) {
-            last_pressure_ms = now_ms;
-
-            // Oil pressure (ADC1)
-            //int raw_oil_press = adc1_get_raw(OIL_PRESSURE_ADC_CHANNEL);
-            float raw_oil_press = sample_sum_adc1(OIL_PRESSURE_ADC_CHANNEL, FILTER_SAMPLES_DEFAULT);
-            float voltage_oil = ((float)raw_oil_press / 4095.0f) * ADC_VREF;
-
-
-            float oil_press_new = voltage_to_psi(voltage_oil * OIL_FUEL_DIVIDER_SCALE);
-
-            if (oil_press_filtered < 0) oil_press_filtered = oil_press_new;
-
-            oil_press_filtered =
-                oil_press_filtered + oil_fuel_pressure_alpha * (oil_press_new - oil_press_filtered);
-
-
-            g_gauge_data.oil_pressure_psi = oil_press_filtered;
-
-
-        }
-
         // ---------- Wideband AFR (ADC2) ---------- //
         if (now_ms - last_afr_ms >= AFR_UPDATE_DELAY) { 
             last_afr_ms = now_ms; 
@@ -674,93 +521,13 @@ static void adc_task(void *arg) {
             g_gauge_data.afr = afr_filtered;
         }
 
-        // ---------- Fuel Gauge Update ----------
-        if (now_ms - last_fuel_ms >= FUEL_UPDATE_PERIOD) {
-            last_fuel_ms = now_ms;
-
-            float avg_raw = sample_sum_adc2(FUEL_ADC_CHANNEL, FILTER_SAMPLES_DEFAULT);
-            float vFuel = (avg_raw * ADC_VREF) / ADC_MAX;
-
-            bool fuelSettled =
-                (now_ms - boot_time_ms) > BOOT_SETTLE_MS;
-
-            bool fuelValid = fuelSettled && (vFuel <= 3.29f);
-
-            if (fuelValid) {
-
-                float new_pct = fuel_pct_from_voltage(vFuel);
-
-                // Initialize once
-                if (!fuel_initialized) {
-                    fuel_filtered = new_pct;
-                    fuel_initialized = true;
-                }
-
-                float alpha;
-
-                if (new_pct < fuel_filtered) {
-                    // Tank dropping → respond faster
-                    alpha = 0.20f;   // 20% per second
-                } else {
-                    // Tank rising (slosh / incline) → respond slowly
-                    alpha = 0.10f;   // 10% per second
-                }
-
-                fuel_filtered += alpha * (new_pct - fuel_filtered);
-
-                fuel_percent = fuel_filtered; 
-                g_gauge_data.fuel_level_pct = fuel_percent;
-
-                fuel_ever_valid = true;
-
-            } else {
-
-                if (!fuel_ever_valid) {
-                    fuel_percent = 0;
-                    g_gauge_data.fuel_level_pct = 0;
-                }
-
-                ESP_LOGW(TAG_FUEL, "Fuel invalid V=%.3f", vFuel);
-            }
-        }
-        if (now_ms - last_tx_ms >= 20) {
-            // 50 Hz gauge packet stream to both UART outputs.
-            last_tx_ms = now_ms;
-            static uint8_t seq = 0;
-            uint8_t buf[GAUGE_PKT_LEN];
-
-            buf[0] = GAUGE_PKT_SOF;
-            buf[1] = seq++;
-
-            gauge_payload_t *p = (gauge_payload_t *)&buf[2];
-
-            p->water_temp    = (uint16_t)(g_gauge_data.water_temp_f * 10.0f);
-            p->oil_pressure  = (uint16_t)(g_gauge_data.oil_pressure_psi * 10.0f);
-            p->fuel_level    = (uint16_t)(g_gauge_data.fuel_level_pct * 10.0f);
-            p->afr           = (uint16_t)(g_gauge_data.afr * 10.0f);
-            
-            uint64_t lap_us = lap_timer_get_current_us();
-            int32_t  delta_us = lap_timer_get_delta_us();
-
-
-            uint16_t crc = crc16_ccitt(&buf[1], GAUGE_PKT_LEN - 3);
-            memcpy(&buf[GAUGE_PKT_LEN - 2], &crc, 2);
-
-            uart_write_bytes(UART_PORT, buf, GAUGE_PKT_LEN);
-            uart_write_bytes(UART1_PORT, buf, GAUGE_PKT_LEN);
-        }
 
         // Optional logging
         #if ENABLE_LOGS
-            ESP_LOGI(TAG_FUEL,
-                    "Fuel:  %%=%u",
-                    fuel_percent);
             ESP_LOGI(TAG_TEMP,
                     "Water: %.1fF",
-                    g_gauge_data.water_temp_f,
-            ESP_LOGI(TAG_PRESSURE,
-                    "Oil PSI: %.2f", 
-                    g_gauge_data.oil_pressure_psi,
+                    g_gauge_data.water_temp_f);
+
             ESP_LOGI(TAG_AFR,
                     "AFR: %.2f",
                     g_gauge_data.afr);
@@ -771,106 +538,39 @@ static void adc_task(void *arg) {
 }
 
 
-static void uart_init(uart_port_t uart_num, int txPin, int rxPin, int bufSize, int baud) {
-    // Shared UART setup for the two gauge transmit ports and the GPS receive
-    // port.  Unused pins are passed as UART_PIN_NO_CHANGE.
-    uart_config_t cfg = {
-        .baud_rate = baud,
-        .data_bits = UART_DATA_8_BITS,
-        .parity    = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_DEFAULT 
-    };
-
-    ESP_ERROR_CHECK(uart_driver_install(
-        uart_num,
-        bufSize,   // TX buffer
-        0,         // RX buffer
-        0,
-        NULL,
-        0
-    ));
-
-    ESP_ERROR_CHECK(uart_param_config(uart_num, &cfg));
-
-    ESP_ERROR_CHECK(uart_set_pin(
-        uart_num,
-        txPin,
-        rxPin,
-        UART_PIN_NO_CHANGE,
-        UART_PIN_NO_CHANGE
-    ));
-}
-
-static void can_mapping_task(void *arg){
-    // CAN path adapter: copy decoded ECU values into the same state variables
-    // that the analog path uses, then emit the identical UART payload format.
-    int64_t last_tx_ms  = 0;
-    int64_t last_odo_ms = 0;
-
-    while (1){
-        int64_t now_ms = esp_timer_get_time() / 1000;
-
-
-        // CAN speed usually in KPH
-        g_speed_mph = can_data.speed * 0.621371f;
-
-        // ---------- Odometer ----------
-        if (now_ms - last_odo_ms >= 1000){
-            last_odo_ms = now_ms;
-
-            float speed_kph = can_data.speed;
-
-            // meters per second
-            float meters_per_sec = speed_kph / 3.6f;
-
-            uint32_t whole = (uint32_t)meters_per_sec;
-
-            if (whole > 0)
-                odometer_add_meters(whole);
-        }
-
-        // ---------- Gauge data ----------
-        g_gauge_data.water_temp_f     = can_data.coolant_temp;
-        g_gauge_data.oil_pressure_psi = can_data.oil_pressure;
-        g_gauge_data.afr = can_data.air_fuel_ratio;
-        
-
-        // ---------- UART TX ----------
-        if (now_ms - last_tx_ms >= 20){
-            last_tx_ms = now_ms;
-
-            static uint8_t seq = 0;
-            uint8_t buf[GAUGE_PKT_LEN];
-
-            buf[0] = GAUGE_PKT_SOF;
-            buf[1] = seq++;
-
-            gauge_payload_t *p = (gauge_payload_t *)&buf[2];
-
-            p->water_temp    = (uint16_t)(g_gauge_data.water_temp_f * 10.0f);
-            p->oil_pressure  = (uint16_t)(g_gauge_data.oil_pressure_psi * 10.0f);
-            p->fuel_level    = (uint16_t)(g_gauge_data.fuel_level_pct * 10.0f);
-            p->afr           = (uint16_t)(g_gauge_data.afr * 10.0f);
-
-            uint16_t crc = crc16_ccitt(&buf[1], GAUGE_PKT_LEN - 3);
-            memcpy(&buf[GAUGE_PKT_LEN - 2], &crc, 2);
-
-            uart_write_bytes(UART_PORT, buf, GAUGE_PKT_LEN);
-            uart_write_bytes(UART1_PORT, buf, GAUGE_PKT_LEN);
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-}
 
 
 //------------------------------------------------------------------------//
 
+// Matches the initial lv_img_set_angle() set on ui_SpeedoNeedle in ui_MainSpeedo.c (0 mph rest position).
+#define SPEEDO_NEEDLE_REST_ANGLE   (-670)
+// How far the sweep rotates from rest before returning; sign/magnitude tuned by eye
+// against the dial artwork to land near the 80 mph mark, since this needle has no
+// existing mph->angle calibration to derive it from.
+#define SPEEDO_SWEEP_ANGLE_DELTA   (2455)
+
+static void speedo_needle_angle_anim_cb(void *obj, int32_t angle) {
+    lv_img_set_angle((lv_obj_t *)obj, (int16_t)angle);
+}
+
+static void start_speedo_boot_sweep(void) {
+    // One animation with playback: sweeps out over half the time, then LVGL
+    // automatically reverses back to the start value over the other half.
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, ui_SpeedoNeedle);
+    lv_anim_set_exec_cb(&a, speedo_needle_angle_anim_cb);
+    lv_anim_set_values(&a, SPEEDO_NEEDLE_REST_ANGLE, SPEEDO_SWEEP_ANGLE_DELTA);
+    lv_anim_set_time(&a, 1750);
+    lv_anim_set_playback_time(&a, 1750);
+    lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
+    lv_anim_start(&a);
+}
+
 static void boot_to_main_speedo_cb(lv_timer_t *timer) {
     lv_timer_del(timer);
-    _ui_screen_change(&ui_MainSpeedo, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_MainSpeedo_screen_init);
+    _ui_screen_change(&ui_MainSpeedo, LV_SCR_LOAD_ANIM_FADE_ON, 100, 0, &ui_MainSpeedo_screen_init);
+    start_speedo_boot_sweep();
 }
 
 void app_main(void) {
@@ -889,25 +589,12 @@ void app_main(void) {
     lv_display_t *disp = bsp_display_start_with_config(&cfg);
 
     adc_global_init();
-    init_label_styles();
     odometer_init();
 
     ui_init();
     lv_timer_create(gauge_timer, 10, NULL);
     lv_timer_create(boot_to_main_speedo_cb, 1000, NULL);
 
-    uart_init(UART_PORT, UART_TX_PIN, UART_PIN_NO_CHANGE, UART_TX_BUF_SIZE, UART_BAUD_RATE); 
-    uart_init(UART1_PORT, UART1_TX_PIN, UART_PIN_NO_CHANGE, UART_TX_BUF_SIZE, UART_BAUD_RATE); 
-    uart_init(GPS_UART_NUM, UART_PIN_NO_CHANGE, GPS_RX_PIN, (GPS_BUF_SIZE*2), GPS_BAUD_RATE); 
-
-    if (SENSOR_SOURCE == SENSOR_SOURCE_CAN){
-        canbus_init();
-        xTaskCreatePinnedToCore(canbus_task,"can_rx",4096,NULL,10,NULL,0);
-        xTaskCreatePinnedToCore(can_mapping_task,"can_mapping_task",4096,NULL,10,NULL,1);
-    } else {
-        xTaskCreatePinnedToCore(gps_task, "gps_task", 4096, NULL, 5, NULL, 0);
-        xTaskCreatePinnedToCore(adc_task, "adc_uart_task", 4096, NULL, 5, NULL, 0);
-    }
 
     xTaskCreatePinnedToCore(save_miles_task, "save_miles_task", 4096, NULL, 4, NULL, 0);
 
