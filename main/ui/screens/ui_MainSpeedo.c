@@ -5,7 +5,7 @@
 
 #include "../ui.h"
 
-lv_obj_t *ui_MainSpeedo = NULL;lv_obj_t *ui_Odometer1 = NULL;lv_obj_t *ui_Odometer2 = NULL;lv_obj_t *ui_Odometer3 = NULL;lv_obj_t *ui_Odometer4 = NULL;lv_obj_t *ui_Odometer5 = NULL;lv_obj_t *ui_Odometer6 = NULL;lv_obj_t *ui_SpeedoNeedle = NULL;
+lv_obj_t *ui_MainSpeedo = NULL;lv_obj_t *ui_Odometer1 = NULL;lv_obj_t *ui_Odometer2 = NULL;lv_obj_t *ui_Odometer3 = NULL;lv_obj_t *ui_Odometer4 = NULL;lv_obj_t *ui_Odometer5 = NULL;lv_obj_t *ui_Odometer6 = NULL;lv_obj_t *ui_SpeedoNeedle = NULL;lv_obj_t *ui_SpeedoValue = NULL;lv_obj_t *ui_GPSDEBUG = NULL;
 // event funtions
 void ui_event_MainSpeedo( lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
@@ -110,8 +110,34 @@ lv_obj_set_x( ui_SpeedoNeedle, -124 );
 lv_obj_set_y( ui_SpeedoNeedle, 359 );
 lv_obj_clear_flag( ui_SpeedoNeedle, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_img_set_pivot(ui_SpeedoNeedle,522,52);
-lv_img_set_angle(ui_SpeedoNeedle,-670);
+lv_img_set_angle(ui_SpeedoNeedle,2480);
 lv_img_set_zoom(ui_SpeedoNeedle,150);
+
+ui_SpeedoValue = lv_label_create(ui_MainSpeedo);
+lv_obj_set_width( ui_SpeedoValue, LV_SIZE_CONTENT);  /// 1
+lv_obj_set_height( ui_SpeedoValue, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_x( ui_SpeedoValue, 6 );
+lv_obj_set_y( ui_SpeedoValue, 222 );
+lv_obj_set_align( ui_SpeedoValue, LV_ALIGN_CENTER );
+lv_label_set_text(ui_SpeedoValue,"0");
+lv_obj_clear_flag( ui_SpeedoValue, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
+lv_obj_set_style_text_color(ui_SpeedoValue, lv_color_hex(0x383112), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_text_opa(ui_SpeedoValue, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_font(ui_SpeedoValue, &ui_font_DSGE7_Classic_80, LV_PART_MAIN| LV_STATE_DEFAULT);
+
+ui_GPSDEBUG = lv_label_create(ui_MainSpeedo);
+lv_obj_set_width( ui_GPSDEBUG, LV_SIZE_CONTENT);  /// 1
+lv_obj_set_height( ui_GPSDEBUG, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_x( ui_GPSDEBUG, 2 );
+lv_obj_set_y( ui_GPSDEBUG, -179 );
+lv_obj_set_align( ui_GPSDEBUG, LV_ALIGN_CENTER );
+lv_label_set_text(ui_GPSDEBUG,"");
+lv_obj_clear_flag( ui_GPSDEBUG, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
+lv_obj_set_style_text_color(ui_GPSDEBUG, lv_color_hex(0xEA0A38), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_text_opa(ui_GPSDEBUG, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_radius(ui_GPSDEBUG, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_bg_color(ui_GPSDEBUG, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_bg_opa(ui_GPSDEBUG, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
 
 lv_obj_add_event_cb(ui_MainSpeedo, ui_event_MainSpeedo, LV_EVENT_ALL, NULL);
 
@@ -130,5 +156,7 @@ ui_Odometer4= NULL;
 ui_Odometer5= NULL;
 ui_Odometer6= NULL;
 ui_SpeedoNeedle= NULL;
+ui_SpeedoValue= NULL;
+ui_GPSDEBUG= NULL;
 
 }

@@ -54,6 +54,26 @@ double gps_get_lon(void);
 float gps_get_course_deg(void);
 
 /* =======================
+   TIME (UTC)
+   ======================= */
+
+// True when TinyGPS++ has a valid parsed time field.
+bool gps_time_valid(void);
+
+// UTC hour/minute/second, or -1 each when the time field isn't valid yet.
+int  gps_get_hour(void);
+int  gps_get_minute(void);
+int  gps_get_second(void);
+
+// True when TinyGPS++ has a valid parsed date field.
+bool gps_date_valid(void);
+
+// UTC calendar date, or -1 each when the date field isn't valid yet.
+int  gps_get_year(void);   // full year, e.g. 2026
+int  gps_get_month(void);  // 1-12
+int  gps_get_day(void);    // 1-31
+
+/* =======================
    DISTANCE
    ======================= */
 

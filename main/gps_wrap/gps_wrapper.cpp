@@ -75,6 +75,42 @@ float gps_get_course_deg(void){
 }
 
 /* =======================
+   TIME (UTC)
+   ======================= */
+
+bool gps_time_valid(void){
+    return gps.time.isValid();
+}
+
+int gps_get_hour(void){
+    return gps.time.isValid() ? gps.time.hour() : -1;
+}
+
+int gps_get_minute(void){
+    return gps.time.isValid() ? gps.time.minute() : -1;
+}
+
+int gps_get_second(void){
+    return gps.time.isValid() ? gps.time.second() : -1;
+}
+
+bool gps_date_valid(void){
+    return gps.date.isValid();
+}
+
+int gps_get_year(void){
+    return gps.date.isValid() ? gps.date.year() : -1;
+}
+
+int gps_get_month(void){
+    return gps.date.isValid() ? gps.date.month() : -1;
+}
+
+int gps_get_day(void){
+    return gps.date.isValid() ? gps.date.day() : -1;
+}
+
+/* =======================
    DISTANCE
    ======================= */
 

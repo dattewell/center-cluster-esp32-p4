@@ -81,7 +81,7 @@ lv_obj_set_y( ui_SpeedD, 315 );
 lv_obj_set_align( ui_SpeedD, LV_ALIGN_CENTER );
 lv_obj_clear_flag( ui_SpeedD, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_img_set_pivot(ui_SpeedD,9,-295);
-lv_img_set_angle(ui_SpeedD,595);
+lv_img_set_angle(ui_SpeedD,-548);
 
 ui_AfrD = lv_img_create(ui_OtherData);
 lv_img_set_src(ui_AfrD, &ui_img_needle_no_shadow65_png);
