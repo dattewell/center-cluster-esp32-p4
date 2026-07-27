@@ -5,7 +5,7 @@
 
 #include "../ui.h"
 
-lv_obj_t *ui_OtherData = NULL;lv_obj_t *ui_Image1 = NULL;lv_obj_t *ui_AfrV = NULL;lv_obj_t *ui_TempV = NULL;lv_obj_t *ui_SpeedV = NULL;lv_obj_t *ui_SpeedD = NULL;lv_obj_t *ui_AfrD = NULL;lv_obj_t *ui_TempD = NULL;
+lv_obj_t *ui_OtherData = NULL;lv_obj_t *ui_Image1 = NULL;lv_obj_t *ui_AfrV = NULL;lv_obj_t *ui_TempV = NULL;lv_obj_t *ui_SpeedV = NULL;lv_obj_t *ui_SpeedD = NULL;lv_obj_t *ui_AfrD = NULL;lv_obj_t *ui_TempD = NULL;lv_obj_t *ui_TimeV = NULL;lv_obj_t *ui_AFRStatusBad = NULL;lv_obj_t *ui_AFRStatusGood = NULL;
 // event funtions
 void ui_event_OtherData( lv_event_t * e) {
     lv_event_code_t event_code = lv_event_get_code(e);
@@ -16,7 +16,7 @@ lv_indev_wait_release(lv_indev_get_act());
 }
 if ( event_code == LV_EVENT_GESTURE &&  lv_indev_get_gesture_dir(lv_indev_get_act()) == LV_DIR_LEFT  ) {
 lv_indev_wait_release(lv_indev_get_act());
-      _ui_screen_change( &ui_MainSpeedo, LV_SCR_LOAD_ANIM_MOVE_LEFT, 500, 0, &ui_MainSpeedo_screen_init);
+      _ui_screen_change( &ui_RPMAFR, LV_SCR_LOAD_ANIM_MOVE_LEFT, 500, 0, &ui_RPMAFR_screen_init);
 }
 }
 
@@ -33,6 +33,8 @@ ui_Image1 = lv_img_create(ui_OtherData);
 lv_img_set_src(ui_Image1, &ui_img_gauge_png);
 lv_obj_set_width( ui_Image1, LV_SIZE_CONTENT);  /// 800
 lv_obj_set_height( ui_Image1, LV_SIZE_CONTENT);   /// 800
+lv_obj_set_x( ui_Image1, -1 );
+lv_obj_set_y( ui_Image1, 0 );
 lv_obj_set_align( ui_Image1, LV_ALIGN_CENTER );
 lv_obj_clear_flag( ui_Image1, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 
@@ -77,21 +79,21 @@ lv_img_set_src(ui_SpeedD, &ui_img_needle_no_shadow65_png);
 lv_obj_set_width( ui_SpeedD, LV_SIZE_CONTENT);  /// 12
 lv_obj_set_height( ui_SpeedD, LV_SIZE_CONTENT);   /// 42
 lv_obj_set_x( ui_SpeedD, 0 );
-lv_obj_set_y( ui_SpeedD, 315 );
+lv_obj_set_y( ui_SpeedD, 290 );
 lv_obj_set_align( ui_SpeedD, LV_ALIGN_CENTER );
 lv_obj_clear_flag( ui_SpeedD, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
-lv_img_set_pivot(ui_SpeedD,9,-295);
-lv_img_set_angle(ui_SpeedD,-548);
+lv_img_set_pivot(ui_SpeedD,9,-270);
+lv_img_set_angle(ui_SpeedD,595);
 
 ui_AfrD = lv_img_create(ui_OtherData);
 lv_img_set_src(ui_AfrD, &ui_img_needle_no_shadow65_png);
 lv_obj_set_width( ui_AfrD, LV_SIZE_CONTENT);  /// 12
 lv_obj_set_height( ui_AfrD, LV_SIZE_CONTENT);   /// 42
 lv_obj_set_x( ui_AfrD, 0 );
-lv_obj_set_y( ui_AfrD, 315 );
+lv_obj_set_y( ui_AfrD, 290 );
 lv_obj_set_align( ui_AfrD, LV_ALIGN_CENTER );
 lv_obj_clear_flag( ui_AfrD, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
-lv_img_set_pivot(ui_AfrD,9,-295);
+lv_img_set_pivot(ui_AfrD,9,-270);
 lv_img_set_angle(ui_AfrD,1312);
 
 ui_TempD = lv_img_create(ui_OtherData);
@@ -99,11 +101,47 @@ lv_img_set_src(ui_TempD, &ui_img_needle_no_shadow65_png);
 lv_obj_set_width( ui_TempD, LV_SIZE_CONTENT);  /// 12
 lv_obj_set_height( ui_TempD, LV_SIZE_CONTENT);   /// 42
 lv_obj_set_x( ui_TempD, 0 );
-lv_obj_set_y( ui_TempD, 315 );
+lv_obj_set_y( ui_TempD, 290 );
 lv_obj_set_align( ui_TempD, LV_ALIGN_CENTER );
 lv_obj_clear_flag( ui_TempD, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
-lv_img_set_pivot(ui_TempD,9,-295);
+lv_img_set_pivot(ui_TempD,9,-270);
 lv_img_set_angle(ui_TempD,2747);
+
+ui_TimeV = lv_label_create(ui_OtherData);
+lv_obj_set_width( ui_TimeV, LV_SIZE_CONTENT);  /// 1
+lv_obj_set_height( ui_TimeV, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_x( ui_TimeV, 4 );
+lv_obj_set_y( ui_TimeV, 1 );
+lv_obj_set_align( ui_TimeV, LV_ALIGN_CENTER );
+lv_label_set_text(ui_TimeV,"16:45");
+lv_obj_set_style_text_color(ui_TimeV, lv_color_hex(0xF80303), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_text_opa(ui_TimeV, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_align(ui_TimeV, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_font(ui_TimeV, &lv_font_montserrat_40, LV_PART_MAIN| LV_STATE_DEFAULT);
+
+ui_AFRStatusBad = lv_label_create(ui_OtherData);
+lv_obj_set_width( ui_AFRStatusBad, LV_SIZE_CONTENT);  /// 1
+lv_obj_set_height( ui_AFRStatusBad, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_x( ui_AFRStatusBad, -107 );
+lv_obj_set_y( ui_AFRStatusBad, -79 );
+lv_obj_set_align( ui_AFRStatusBad, LV_ALIGN_CENTER );
+lv_label_set_text(ui_AFRStatusBad,"Heating");
+lv_obj_set_style_text_color(ui_AFRStatusBad, lv_color_hex(0xF80303), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_text_opa(ui_AFRStatusBad, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_align(ui_AFRStatusBad, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_font(ui_AFRStatusBad, &lv_font_montserrat_48, LV_PART_MAIN| LV_STATE_DEFAULT);
+
+ui_AFRStatusGood = lv_label_create(ui_OtherData);
+lv_obj_set_width( ui_AFRStatusGood, LV_SIZE_CONTENT);  /// 1
+lv_obj_set_height( ui_AFRStatusGood, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_x( ui_AFRStatusGood, -124 );
+lv_obj_set_y( ui_AFRStatusGood, -25 );
+lv_obj_set_align( ui_AFRStatusGood, LV_ALIGN_CENTER );
+lv_label_set_text(ui_AFRStatusGood,"Operational");
+lv_obj_set_style_text_color(ui_AFRStatusGood, lv_color_hex(0x14A604), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_text_opa(ui_AFRStatusGood, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_align(ui_AFRStatusGood, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_font(ui_AFRStatusGood, &lv_font_montserrat_14, LV_PART_MAIN| LV_STATE_DEFAULT);
 
 lv_obj_add_event_cb(ui_OtherData, ui_event_OtherData, LV_EVENT_ALL, NULL);
 
@@ -122,5 +160,8 @@ ui_SpeedV= NULL;
 ui_SpeedD= NULL;
 ui_AfrD= NULL;
 ui_TempD= NULL;
+ui_TimeV= NULL;
+ui_AFRStatusBad= NULL;
+ui_AFRStatusGood= NULL;
 
 }

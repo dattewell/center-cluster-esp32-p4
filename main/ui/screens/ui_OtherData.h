@@ -22,6 +22,9 @@ extern lv_obj_t *ui_SpeedV;
 extern lv_obj_t *ui_SpeedD;
 extern lv_obj_t *ui_AfrD;
 extern lv_obj_t *ui_TempD;
+extern lv_obj_t *ui_TimeV;
+extern lv_obj_t *ui_AFRStatusBad;
+extern lv_obj_t *ui_AFRStatusGood;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

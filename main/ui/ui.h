@@ -19,6 +19,7 @@ extern "C" {
 #include "screens/ui_BootScreen.h"
 #include "screens/ui_MainSpeedo.h"
 #include "screens/ui_OtherData.h"
+#include "screens/ui_RPMAFR.h"
 
 ///////////////////// VARIABLES ////////////////////
 
@@ -31,6 +32,7 @@ LV_IMG_DECLARE( ui_img_gauge_background_png);   // assets/gauge_background.png
 LV_IMG_DECLARE( ui_img_gauge_needle_png);   // assets/gauge_needle.png
 LV_IMG_DECLARE( ui_img_gauge_png);   // assets/gauge.png
 LV_IMG_DECLARE( ui_img_needle_no_shadow65_png);   // assets/needle_no_shadow65.png
+LV_IMG_DECLARE( ui_img_tacho_rpm_dial_png);   // assets/tacho_rpm_dial.png
 
 // FONTS
 LV_FONT_DECLARE( ui_font_DIN_1451_Mittelschrift_);

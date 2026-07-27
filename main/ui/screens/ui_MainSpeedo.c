@@ -110,7 +110,7 @@ lv_obj_set_x( ui_SpeedoNeedle, -124 );
 lv_obj_set_y( ui_SpeedoNeedle, 359 );
 lv_obj_clear_flag( ui_SpeedoNeedle, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
 lv_img_set_pivot(ui_SpeedoNeedle,522,52);
-lv_img_set_angle(ui_SpeedoNeedle,2480);
+lv_img_set_angle(ui_SpeedoNeedle,-670);
 lv_img_set_zoom(ui_SpeedoNeedle,150);
 
 ui_SpeedoValue = lv_label_create(ui_MainSpeedo);

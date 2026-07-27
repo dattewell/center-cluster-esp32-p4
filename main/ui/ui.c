@@ -35,6 +35,7 @@ lv_disp_set_theme(dispp, theme);
 ui_BootScreen_screen_init();
 ui_MainSpeedo_screen_init();
 ui_OtherData_screen_init();
+ui_RPMAFR_screen_init();
 ui____initial_actions0 = lv_obj_create(NULL);
 lv_disp_load_scr( ui_BootScreen);
 }
@@ -43,4 +44,5 @@ void ui_destroy( void )
 {ui_BootScreen_screen_destroy();
 ui_MainSpeedo_screen_destroy();
 ui_OtherData_screen_destroy();
+ui_RPMAFR_screen_destroy();
 }

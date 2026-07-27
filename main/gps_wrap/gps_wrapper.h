@@ -1,5 +1,7 @@
 #pragma once
 #include <stdbool.h>
+#include <stdint.h>
+#include "driver/uart.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -72,6 +74,23 @@ bool gps_date_valid(void);
 int  gps_get_year(void);   // full year, e.g. 2026
 int  gps_get_month(void);  // 1-12
 int  gps_get_day(void);    // 1-31
+
+/* =======================
+   UBX (u-blox binary protocol)
+   ======================= */
+
+// Feed one raw byte from the same UART stream used for gps_encode_char() into
+// the UBX frame parser. Harmless on non-UBX streams - it only reacts to the
+// 0xB5 0x62 sync bytes and otherwise ignores everything, so it's safe to call
+// on every byte alongside gps_encode_char() regardless of module type.
+void gps_ubx_feed_byte(uint8_t b);
+
+// Sends a fixed UBX-MON-VER poll on the given UART port, asking the module
+// for its software/hardware version and identifying extension strings. Only
+// u-blox / UBX-compatible chips will respond; others silently ignore it. The
+// response is picked up by gps_ubx_feed_byte() and logged automatically once
+// a full, checksum-valid MON-VER reply is captured.
+void gps_ubx_query_chip_info(uart_port_t uart_num);
 
 /* =======================
    DISTANCE
