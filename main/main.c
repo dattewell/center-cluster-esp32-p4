@@ -51,8 +51,8 @@
 #define RPM_SAMPLE_MS        250    // how often the pulse count is turned into an RPM figure
 
 // RPM dial angle range, calibrated against the dial artwork.
-#define RPM_NEEDLE_ANGLE_0RPM     (695)
-#define RPM_NEEDLE_ANGLE_MAX_RPM  (2895)
+#define RPM_NEEDLE_ANGLE_0RPM     (710)
+#define RPM_NEEDLE_ANGLE_MAX_RPM  (2910)
 #define RPM_DIAL_MAX_RPM          6000
 //----------------------------------------------------------------------------------//
 
@@ -273,6 +273,13 @@ static uint32_t afr_temp_state_color(afr_temp_state_t state) {
 // that lights up ui_AFRStatusBad), since the reading is unreliable either way.
 // Takes the already-classified temperature state (see gauge_timer) rather than
 // reclassifying it itself, since update_afr_status() needs the same classification.
+
+// AFR gauge angle range, calibrated against the dial artwork.
+#define AFR_GAUGE_MIN_VALUE    10.0f
+#define AFR_GAUGE_MAX_VALUE    18.0f
+#define AFR_NEEDLE_ANGLE_MIN   860
+#define AFR_NEEDLE_ANGLE_MAX   1650
+
 static void update_afr(float new_value, afr_temp_state_t afr_state){
     if (!g_afr_enabled) {
         if (strcmp(lv_label_get_text(ui_AfrV), "--") != 0) {
@@ -293,7 +300,8 @@ static void update_afr(float new_value, afr_temp_state_t afr_state){
     }
 
     lv_obj_clear_flag(ui_AfrD, LV_OBJ_FLAG_HIDDEN);
-    int16_t afr_angle = (int16_t)((new_value - 10.0) * (1640 - 845) / 8 + 845);
+    int16_t afr_angle = (int16_t)((new_value - AFR_GAUGE_MIN_VALUE) * (AFR_NEEDLE_ANGLE_MAX - AFR_NEEDLE_ANGLE_MIN)
+        / (AFR_GAUGE_MAX_VALUE - AFR_GAUGE_MIN_VALUE) + AFR_NEEDLE_ANGLE_MIN);
     gauge_channel_t ch = { .value_label = ui_AfrV, .mirror_label = ui_AfrV2, .needle = ui_AfrD, .log_tag = "AFR", .angle_min = 845, .angle_max = 1640, .decimals = 1 };
     update_gauge_channel(&ch, new_value, afr_angle);
 }
@@ -310,6 +318,13 @@ static bool valid_state_dropped(bool *was_valid, bool is_valid_now) {
 
 // Converts the latest water temp reading to the temp needle's angle range and
 // refreshes the temp label/needle.
+
+// Water temp gauge angle range, calibrated against the dial artwork.
+#define TEMP_GAUGE_MIN_VALUE     40.0f
+#define TEMP_GAUGE_MAX_VALUE     120.0f
+#define TEMP_NEEDLE_ANGLE_MIN    1950
+#define TEMP_NEEDLE_ANGLE_MAX    2760
+
 static void update_water_temp(float new_value, bool valid){
     static bool last_valid = true;
 
@@ -322,8 +337,9 @@ static void update_water_temp(float new_value, bool valid){
     }
 
     lv_obj_clear_flag(ui_TempD, LV_OBJ_FLAG_HIDDEN);
-    int16_t temp_angle = (int16_t)(2747 - (new_value - 40.0) * (2747 - 1940) / 80);
-    gauge_channel_t ch = { .value_label = ui_TempV, .mirror_label = NULL, .needle = ui_TempD, .log_tag = "TEMP", .angle_min = 1940, .angle_max = 2747, .decimals = 0 };
+    int16_t temp_angle = (int16_t)(TEMP_NEEDLE_ANGLE_MAX - (new_value - TEMP_GAUGE_MIN_VALUE)
+        * (TEMP_NEEDLE_ANGLE_MAX - TEMP_NEEDLE_ANGLE_MIN) / (TEMP_GAUGE_MAX_VALUE - TEMP_GAUGE_MIN_VALUE));
+    gauge_channel_t ch = { .value_label = ui_TempV, .mirror_label = NULL, .needle = ui_TempD, .log_tag = "TEMP", .angle_min = TEMP_NEEDLE_ANGLE_MIN, .angle_max = TEMP_NEEDLE_ANGLE_MAX, .decimals = 0 };
     update_gauge_channel(&ch, new_value, temp_angle);
 }
 

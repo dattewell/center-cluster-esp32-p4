@@ -78,34 +78,34 @@ ui_SpeedD = lv_img_create(ui_OtherData);
 lv_img_set_src(ui_SpeedD, &ui_img_needle_no_shadow65_png);
 lv_obj_set_width( ui_SpeedD, LV_SIZE_CONTENT);  /// 12
 lv_obj_set_height( ui_SpeedD, LV_SIZE_CONTENT);   /// 42
-lv_obj_set_x( ui_SpeedD, 0 );
+lv_obj_set_x( ui_SpeedD, 9 );
 lv_obj_set_y( ui_SpeedD, 290 );
 lv_obj_set_align( ui_SpeedD, LV_ALIGN_CENTER );
 lv_obj_clear_flag( ui_SpeedD, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
-lv_img_set_pivot(ui_SpeedD,9,-270);
+lv_img_set_pivot(ui_SpeedD,0,-270);
 lv_img_set_angle(ui_SpeedD,595);
 
 ui_AfrD = lv_img_create(ui_OtherData);
 lv_img_set_src(ui_AfrD, &ui_img_needle_no_shadow65_png);
 lv_obj_set_width( ui_AfrD, LV_SIZE_CONTENT);  /// 12
 lv_obj_set_height( ui_AfrD, LV_SIZE_CONTENT);   /// 42
-lv_obj_set_x( ui_AfrD, 0 );
+lv_obj_set_x( ui_AfrD, 9 );
 lv_obj_set_y( ui_AfrD, 290 );
 lv_obj_set_align( ui_AfrD, LV_ALIGN_CENTER );
 lv_obj_clear_flag( ui_AfrD, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
-lv_img_set_pivot(ui_AfrD,9,-270);
-lv_img_set_angle(ui_AfrD,1312);
+lv_img_set_pivot(ui_AfrD,0,-270);
+lv_img_set_angle(ui_AfrD,1324);
 
 ui_TempD = lv_img_create(ui_OtherData);
 lv_img_set_src(ui_TempD, &ui_img_needle_no_shadow65_png);
 lv_obj_set_width( ui_TempD, LV_SIZE_CONTENT);  /// 12
 lv_obj_set_height( ui_TempD, LV_SIZE_CONTENT);   /// 42
-lv_obj_set_x( ui_TempD, 0 );
+lv_obj_set_x( ui_TempD, 9 );
 lv_obj_set_y( ui_TempD, 290 );
 lv_obj_set_align( ui_TempD, LV_ALIGN_CENTER );
 lv_obj_clear_flag( ui_TempD, LV_OBJ_FLAG_PRESS_LOCK | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE | LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_SCROLL_ELASTIC | LV_OBJ_FLAG_SCROLL_MOMENTUM | LV_OBJ_FLAG_SCROLL_CHAIN );    /// Flags
-lv_img_set_pivot(ui_TempD,9,-270);
-lv_img_set_angle(ui_TempD,2747);
+lv_img_set_pivot(ui_TempD,0,-270);
+lv_img_set_angle(ui_TempD,2760);
 
 ui_TimeV = lv_label_create(ui_OtherData);
 lv_obj_set_width( ui_TimeV, LV_SIZE_CONTENT);  /// 1
