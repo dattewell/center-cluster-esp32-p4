@@ -32,16 +32,16 @@
 
 //-----Pin Assignment---------//
 
-//GPS RX - GPIO 35
-#define GPS_RX_PIN        35
+// GPS RX/TX per netlist (/GPS_TX net = J3 pin 7 = GPIO29 = ESP RX;
+// /GPS_RX net = J3 pin 15 = GPIO28 = ESP TX). Net names are from the
+// module's perspective, so ESP_RX reads the net called GPS_TX and vice versa.
+#define GPS_RX_PIN        29
 #define GPS_UART_NUM      UART_NUM_3
-// GPS TX (module RX line) - GPIO 36. Chosen because it's adjacent to
-// GPS_RX_PIN and likely broken out on the same header, but not verified
-// against the board's silkscreen - confirm before wiring.
-#define GPS_TX_PIN        36
+#define GPS_TX_PIN        28
 
-//Water Temp - GPIO 51
-#define WATER_TEMP_ADC_CHANNEL ADC_CHANNEL_2
+// Coolant temp - GPIO20, ADC1_CHANNEL4, per netlist (Net-(J3-20): C3.2,
+// D7.3, R15.2). Confirmed on ADC1, not ADC2.
+#define WATER_TEMP_ADC_CHANNEL ADC_CHANNEL_4
 
 //--------------------------//
 
@@ -56,21 +56,47 @@
 #define RPM_DIAL_MAX_RPM          6000
 //----------------------------------------------------------------------------------//
 
-//-------------AFR power gating (BTS7004 on GPIO4, TXB0104D OE on GPIO28)-------------//
-#define AFR_ENABLE_GPIO      4      // BTS7004-1EPP IN - powers the AFR sensor
-#define AFR_OE_GPIO          28     // TXB0104D OE - enables the AFR UART level shifter
+//-------------Headlight sense (GPIO50) - dims the display at night-------------//
+// Active LOW per the H11L1 opto (U6): HIGH = headlights off, LOW = on. Board
+// already has an external 4k7 pull-up (R18), so no internal pull needed.
+// Debounced in software - a bad earth or a flash-to-pass must not flicker
+// the display - and brightness ramps smoothly between day/night levels
+// rather than stepping, per CLAUDE.md Sec.6's suggested behaviour.
+#define HEADLIGHT_GPIO          50
+#define HEADLIGHT_DEBOUNCE_MS   300
+#define BRIGHTNESS_DAY_PCT       50   // matches the existing boot default
+#define BRIGHTNESS_NIGHT_PCT     40
+#define BRIGHTNESS_RAMP_MS       1000
+//--------------------------------------------------------------------------------//
+
+//-------------AFR power gating (BTS7004 on GPIO51)-------------//
+// The AFR UART level shifter used to be a single TXB0104D with a
+// software-controlled OE pin (AFR_OE_GPIO, was GPIO28). The schematic now
+// uses two single-bit SN74LVC1T45 shifters (one per UART direction) with
+// their DIR pins hardwired to GND - fixed-direction, no enable pin at all,
+// so translation just follows whichever side has power. That power already
+// comes from the same BTS7004 rail this gate switches, so there's nothing
+// left for a GPIO to enable here.
+//
+// GPIO51 drives U3 (BTS7004-1EPP) pin 2, IN, per netlist (Net-(J3-51):
+// R14.2, R6.1 -> U3.2). GPIO4 was tried earlier and is physically
+// unconnected on this board (terminates at J3 pin 18, no further net) - it
+// would have silently done nothing.
+#define AFR_ENABLE_GPIO      51     // BTS7004-1EPP IN - powers the AFR sensor
+// Not yet wired into control logic - defined for when DEN/IS support is added.
+#define AFR_DEN_GPIO         49     // BTS7004-1EPP DEN - HIGH enables IS output
+#define AFR_IS_ADC_CHANNEL   ADC_CHANNEL_5  // BTS7004-1EPP IS, ADC1_CH5 (GPIO21)
 #define RPM_MIN_RUNNING      500    // must be at/above this to start qualifying AFR power-on
 #define RPM_QUALIFY_MS       30000  // sustained duration above RPM_MIN_RUNNING before AFR powers on
 #define RPM_STOPPED_BELOW    100    // below this is treated as "engine stopped", not just idling low
 #define RPM_STOPPED_HOLD_MS  5000   // sustained duration below RPM_STOPPED_BELOW before AFR powers back off
 //-------------------------------------------------------------------------------------//
 
-//-------------AFR UART (14point7 Spartan) - GPIO 20/21-------------//
-// TX/RX assignment is a best guess (20=TX, 21=RX) pending hardware confirmation -
-// swap AFR_TX_PIN/AFR_RX_PIN if the device doesn't respond once the parser is added.
+//-------------AFR UART (14point7 Spartan)-------------//
+// TX/RX assignment per schematic: AFR_TX on U4 (GPIO52), AFR_RX on U5 (GPIO48).
 #define AFR_UART_NUM   UART_NUM_1
-#define AFR_TX_PIN     20
-#define AFR_RX_PIN     21
+#define AFR_TX_PIN     52
+#define AFR_RX_PIN     48
 #define AFR_BAUD_RATE  9600
 //--------------------------------------------------------------------//
 
@@ -92,40 +118,29 @@
 //-------------TEMP-------------//
 // Sender node: SENSOR_SUPPLY --[R_PULLUP]-- (node, straight into the ADC pin,
 // no external divider) --[sender]-- GND, with a 100nF cap on the node for
-// noise filtering.
-#define R_PULLUP       10000.0f
+// noise filtering. R_PULLUP is R1, ERJU6RD4700V (470R) per netlist/BOM -
+// confirmed authoritative over both the 1k the schematic trace suggested and
+// the 10k firmware previously assumed.
+#define R_PULLUP       470.0f
 #define SENSOR_SUPPLY  3.3f
 #define ADC_WIDTH ADC_BITWIDTH_12
 #define ADC_ATTEN ADC_ATTEN_DB_12
 
-// PROVISIONAL calibration for the actual installed sender (the original table
-// here was for a generic/different sender and read ~100C+ high across the
-// board). Fitted as an NTC Beta-model curve (ln(R) = B/T_kelvin + A) via
-// least-squares regression through three real measured points spanning the
-// practical range: ice water (0C, ~2217 ohm avg of 5 samples), room temp
-// (24C, ~756 ohm), and a thermometer-confirmed 76C reading (~114.6 ohm avg
-// of 5 samples), giving B ~= 3763, A ~= -6.05 - this tracks all three points
-// within ~2.2%. Refine further with more measured points if accuracy in a
-// particular range matters.
-#define TEMP_SENSOR_TABLE_SIZE 9
-const float tempC[] = {
-    0, 20, 40, 60, 80, 100, 120, 140, 150
-};
+// NTC Beta-model conversion per CLAUDE.md Sec.3 - sender is R25=730R,
+// Beta=3763 (25/85C). Physics-based, accurate across the sender's whole
+// -10C to 120C+ range, unlike a table fitted only to a handful of measured
+// points.
+#define TEMP_R25_OHMS   730.0f
+#define TEMP_BETA       3763.0f
+#define TEMP_T0_KELVIN  298.15f
 
-const float sensorR[] = {
-    2265, 885, 390, 190, 100, 57, 34, 21, 17
-};
-
-// A disconnected sender leaves the pull-up with nowhere to sink current, so
-// the divider node floats up toward SENSOR_SUPPLY - well past the coldest
-// calibrated point (sensorR[0], 0C - only ~2265 ohm now, versus the hundreds
-// of thousands to millions of ohms actually observed when disconnected).
-// read_temp_resistance()'s formula actually swings negative right as the
-// divider node crosses SENSOR_SUPPLY, so treat both "unreasonably high" and
-// negative resistance as "not connected" rather than silently clamping to a
-// temperature (which, for the negative case, would otherwise misreport as
-// scalding hot - the opposite of reality).
-#define TEMP_SENSOR_DISCONNECTED_R 5000.0f
+// Fault detection thresholds — derived from R_PULLUP = 470R.
+// A working sender at -10C reads ~2946 mV, so 3000 would false-trigger;
+// 3150 keeps clean margin below that while still catching a genuine open
+// (~3300 mV). Coldest expected reading is ~2.95 V (-10 C); hottest ~0.12 V (150 C).
+#define TEMP_OPEN_MV    3150    // sender disconnected / broken wire
+#define TEMP_SHORT_MV     40    // sender or wire shorted to ground
+#define TEMP_R_INVALID  -1.0f
 //------------------------------//
 
 // Matches the initial lv_img_set_angle() set on ui_SpeedoNeedle in ui_MainSpeedo.c (0 mph rest position).
@@ -151,7 +166,7 @@ static const char *TAG_AFR = "AFR_SENSOR";
 // fixed-point protocol expected by the remote gauge display.
 typedef struct {
     float water_temp_c;
-    bool  water_temp_valid;  // false when the sender reads as disconnected - see TEMP_SENSOR_DISCONNECTED_R
+    bool  water_temp_valid;  // false when the sender reads as disconnected - see TEMP_OPEN_MV/TEMP_SHORT_MV
     float afr;
     float afr_temp_c;   // wideband sensor cell temperature - drives update_afr_status()
     float speed_mph;
@@ -192,7 +207,9 @@ static void update_gauge_channel(const gauge_channel_t *ch, float new_value, int
 
     if (angle > ch->angle_max) angle = ch->angle_max;
     if (angle < ch->angle_min) angle = ch->angle_min;
-    ESP_LOGI(ch->log_tag, "value=%.1f angle=%d", new_value, angle);
+    #if ENABLE_LOGS
+        ESP_LOGI(ch->log_tag, "value=%.1f angle=%d", new_value, angle);
+    #endif
     lv_img_set_angle(ch->needle, angle);
 }
 
@@ -254,7 +271,9 @@ static uint32_t afr_temp_state_color(afr_temp_state_t state) {
 // false - no sustained RPM, see update_afr_power_gate()), or blanks both labels
 // while the sensor is powered but in the TOO_HOT alarm state (same condition
 // that lights up ui_AFRStatusBad), since the reading is unreliable either way.
-static void update_afr(float new_value, float afr_temp_c){
+// Takes the already-classified temperature state (see gauge_timer) rather than
+// reclassifying it itself, since update_afr_status() needs the same classification.
+static void update_afr(float new_value, afr_temp_state_t afr_state){
     if (!g_afr_enabled) {
         if (strcmp(lv_label_get_text(ui_AfrV), "--") != 0) {
             lv_label_set_text(ui_AfrV, "--");
@@ -264,7 +283,7 @@ static void update_afr(float new_value, float afr_temp_c){
         return;
     }
 
-    if (afr_classify_temp(afr_temp_c) == AFR_TEMP_STATE_TOO_HOT) {
+    if (afr_state == AFR_TEMP_STATE_TOO_HOT) {
         if (strcmp(lv_label_get_text(ui_AfrV), "") != 0) {
             lv_label_set_text(ui_AfrV, "");
             lv_label_set_text(ui_AfrV2, "");
@@ -279,23 +298,28 @@ static void update_afr(float new_value, float afr_temp_c){
     update_gauge_channel(&ch, new_value, afr_angle);
 }
 
+// Edge-detects a data source going from valid to invalid, so callers can run
+// their "blank the display" step exactly once per invalid streak instead of
+// every tick. Callers seed their static bool `true` so the very first call
+// also forces a blank (clearing SquareLine's design-time placeholder text).
+static bool valid_state_dropped(bool *was_valid, bool is_valid_now) {
+    bool dropped = !is_valid_now && *was_valid;
+    *was_valid = is_valid_now;
+    return dropped;
+}
+
 // Converts the latest water temp reading to the temp needle's angle range and
 // refreshes the temp label/needle.
 static void update_water_temp(float new_value, bool valid){
-    // Starts true so the very first call (before a reading has been taken)
-    // forces an initial "--", clearing SquareLine's placeholder text rather
-    // than waiting for the sender to go valid then invalid once.
     static bool last_valid = true;
 
+    if (valid_state_dropped(&last_valid, valid)) {
+        lv_label_set_text(ui_TempV, "--");
+    }
     if (!valid) {
-        if (last_valid) {
-            lv_label_set_text(ui_TempV, "--");
-            last_valid = false;
-        }
         lv_obj_add_flag(ui_TempD, LV_OBJ_FLAG_HIDDEN);
         return;
     }
-    last_valid = true;
 
     lv_obj_clear_flag(ui_TempD, LV_OBJ_FLAG_HIDDEN);
     int16_t temp_angle = (int16_t)(2747 - (new_value - 40.0) * (2747 - 1940) / 80);
@@ -321,39 +345,46 @@ static void update_rpm(int rpm){
 //    per band (Cold/Heating/Operating/Warning Hot/Too Hot) colored to match.
 // All three are blanked outright while the AFR sensor isn't powered on at all
 // (g_afr_enabled false - no sustained RPM, see update_afr_power_gate()), since
-// there's no real temperature reading to classify yet.
-static void update_afr_status(float temp_c) {
-    static afr_temp_state_t last_bad_state = (afr_temp_state_t)-1;
-    static afr_temp_state_t last_good_state = (afr_temp_state_t)-1;
+// there's no real temperature reading to classify yet. Takes the
+// already-classified state (see gauge_timer) since update_afr() needs the
+// same classification - no need to derive it twice per tick.
+static void update_afr_status(float temp_c, afr_temp_state_t state) {
+    // ui_AFRStatusBad and ui_AFRStatusGood's dedupe checks always land on the
+    // same "did the state change since last call" answer, so one tracker
+    // covers both - only was_enabled needs to stay separate (see below).
+    static afr_temp_state_t last_state = (afr_temp_state_t)-1;
     static bool blink_on = false;
     static int64_t last_blink_ms = 0;
     static char last_status_text[24] = "";
     // Starts true so the very first call (with g_afr_enabled still false at
     // boot) forces an initial blank, clearing SquareLine's design-time
     // placeholder text ("Heating\n360C" etc.) instead of leaving it on-screen
-    // until the sensor happens to cycle enabled->disabled once.
+    // until the sensor happens to cycle enabled->disabled once. Kept distinct
+    // from last_state (rather than checking last_state == -1) because that
+    // sentinel is also last_state's own "unset" value - collapsing the two
+    // would suppress this initial forced blank.
     static bool was_enabled = true;
 
-    if (!g_afr_enabled) {
-        if (was_enabled) {
-            lv_label_set_text(ui_AFRStatusGood, "");
-            lv_label_set_text(ui_AFRStatusBad, "");
-            lv_label_set_text(ui_AFRStatus, "");
-            last_bad_state = (afr_temp_state_t)-1;
-            last_good_state = (afr_temp_state_t)-1;
-            last_status_text[0] = '\0';
-            was_enabled = false;
-        }
-        return;
+    if (valid_state_dropped(&was_enabled, g_afr_enabled)) {
+        lv_label_set_text(ui_AFRStatusGood, "");
+        lv_label_set_text(ui_AFRStatusBad, "");
+        lv_label_set_text(ui_AFRStatus, "");
+        last_state = (afr_temp_state_t)-1;
+        last_status_text[0] = '\0';
     }
-    was_enabled = true;
+    if (!g_afr_enabled) return;
 
-    afr_temp_state_t state = afr_classify_temp(temp_c);
+    bool state_changed = (state != last_state);
+    #if ENABLE_LOGS
+        if (state_changed) {
+            ESP_LOGI(TAG_AFR, "temp state %d -> %d (%.0fC)", last_state, state, temp_c);
+        }
+    #endif
 
     // ui_AFRStatusBad: Cold/Heating shown solid, Too Hot blinks as an alarm,
     // Operating/Warning Hot leave it blank.
     if (state == AFR_TEMP_STATE_COLD || state == AFR_TEMP_STATE_HEATING) {
-        if (state != last_bad_state) {
+        if (state_changed) {
             lv_label_set_text(ui_AFRStatusBad, afr_temp_state_word(state));
         }
     } else if (state == AFR_TEMP_STATE_TOO_HOT) {
@@ -363,21 +394,20 @@ static void update_afr_status(float temp_c) {
             blink_on = !blink_on;
             lv_label_set_text(ui_AFRStatusBad, blink_on ? "Too Hot" : "");
         }
-    } else if (state != last_bad_state) {
+    } else if (state_changed) {
         lv_label_set_text(ui_AFRStatusBad, "");
     }
-    last_bad_state = state;
 
     // ui_AFRStatusGood: Operating/Warning Hot shown, blank otherwise.
-    if (state != last_good_state) {
+    if (state_changed) {
         if (state == AFR_TEMP_STATE_OPERATING || state == AFR_TEMP_STATE_WARNING_HOT) {
             lv_label_set_text(ui_AFRStatusGood, afr_temp_state_word(state));
             lv_obj_set_style_text_color(ui_AFRStatusGood, lv_color_hex(afr_temp_state_color(state)), LV_PART_MAIN | LV_STATE_DEFAULT);
         } else {
             lv_label_set_text(ui_AFRStatusGood, "");
         }
-        last_good_state = state;
     }
+    last_state = state;
 
     // ui_AFRStatus: always-on combined readout.
     char status_text[24];
@@ -406,16 +436,12 @@ static void update_odo_if_needed(lv_obj_t *label, int digit) {
 
 //-----------------------TEMP--------------------------//
 
-float read_temp_resistance(int millivolts){
-    // The ADC pin sits directly on the sender's pull-up node (no external
-    // divider), so the calibrated reading is the divider voltage itself -
-    // just solve the pull-up/sensor divider for thermistor resistance.
-    float signal_voltage = millivolts / 1000.0f;
-
-    float sensor_resistance = R_PULLUP *
-        (signal_voltage / (SENSOR_SUPPLY - signal_voltage));
-
-    return sensor_resistance;
+float read_temp_resistance(int millivolts) {
+    if (millivolts >= TEMP_OPEN_MV || millivolts <= TEMP_SHORT_MV) {
+        return TEMP_R_INVALID;
+    }
+    float v = millivolts / 1000.0f;
+    return R_PULLUP * (v / (SENSOR_SUPPLY - v));
 }
 
 //-----------------------------------------------------//
@@ -446,21 +472,18 @@ void update_speedo(float speed_mph, bool has_fix) {
     static int last_speed = -1;
     static bool last_fix = true;
 
-    if (!has_fix) {
-        if (last_fix) {
-            lv_label_set_text(ui_SpeedoValue, "--");
-            lv_label_set_text(ui_SpeedV, "--");
-            lv_label_set_text(ui_SpeedV2, "--");
-            last_fix = false;
-            last_speed = -1;   // force a redraw once the fix comes back
-        }
-        return;
+    if (valid_state_dropped(&last_fix, has_fix)) {
+        lv_label_set_text(ui_SpeedoValue, "--");
+        lv_label_set_text(ui_SpeedV, "--");
+        lv_label_set_text(ui_SpeedV2, "--");
+        last_speed = -1;   // force a redraw once the fix comes back
     }
+    if (!has_fix) return;
 
     if (speed_mph < GPS_MIN_VALID_MPH) speed_mph = 0.0f;
     int speed_int = (int)speed_mph;
 
-    if (!last_fix || speed_int != last_speed) {
+    if (speed_int != last_speed) {
         int16_t mph_angle = (int16_t)(SPEEDO_NEEDLE_REST_ANGLE +
             speed_mph * (SPEEDO_NEEDLE_ANGLE_80MPH - SPEEDO_NEEDLE_REST_ANGLE) / 80);
         gauge_channel_t ch = { .value_label = ui_SpeedoValue, .mirror_label = NULL, .needle = ui_SpeedoNeedle, .log_tag = "Mph_Speed", .angle_min = SPEEDO_NEEDLE_REST_ANGLE, .angle_max = SPEEDO_SWEEP_ANGLE_DELTA, .decimals = 0 };
@@ -472,7 +495,6 @@ void update_speedo(float speed_mph, bool has_fix) {
         update_gauge_channel(&ch2, speed_kmh, kmh_angle );
 
         last_speed = speed_int;
-        last_fix = true;
     }
 }
 
@@ -490,27 +512,76 @@ static void update_gps_time_display(void) {
     static bool last_valid = true;
     static int last_hour = -1;
     static int last_min = -1;
+    static int64_t last_check_ms = 0;
+
+    // gps_get_nz_local_time() does two setenv()+tzset() calls, which are
+    // genuinely expensive - GPS time only advances ~1x/sec, so there's no
+    // point paying that cost on every 10ms gauge_timer tick.
+    int64_t now_ms = esp_timer_get_time() / 1000;
+    if (now_ms - last_check_ms < 500) return;
+    last_check_ms = now_ms;
 
     struct tm nz_tm;
     bool valid = gps_get_nz_local_time(&nz_tm);
 
-    if (!valid) {
-        if (last_valid) {
-            lv_label_set_text(ui_TimeV, "");
-            lv_label_set_text(ui_TimeV2, "");
-            last_valid = false;
-        }
-        return;
+    if (valid_state_dropped(&last_valid, valid)) {
+        lv_label_set_text(ui_TimeV, "");
+        lv_label_set_text(ui_TimeV2, "");
+        last_hour = -1;
+        last_min = -1;   // force a redraw once time comes back
     }
+    if (!valid) return;
 
-    if (!last_valid || nz_tm.tm_hour != last_hour || nz_tm.tm_min != last_min) {
+    if (nz_tm.tm_hour != last_hour || nz_tm.tm_min != last_min) {
         char buf[6];
         snprintf(buf, sizeof(buf), "%02d:%02d", nz_tm.tm_hour, nz_tm.tm_min);
         lv_label_set_text(ui_TimeV, buf);
         lv_label_set_text(ui_TimeV2, buf);
         last_hour = nz_tm.tm_hour;
         last_min = nz_tm.tm_min;
-        last_valid = true;
+    }
+}
+
+// Reads the debounced headlight state and smoothly ramps display brightness
+// between day/night levels (HEADLIGHT_DEBOUNCE_MS/BRIGHTNESS_RAMP_MS above).
+// Re-targeting mid-ramp (e.g. a quick on/off/on) starts from wherever the
+// brightness currently is, not the old target, so it never jumps.
+static void update_brightness(void) {
+    static bool raw_last = false;
+    static bool headlights_on = false;
+    static int64_t debounce_since_ms = 0;
+    static int ramp_from_pct = BRIGHTNESS_DAY_PCT;
+    static int ramp_to_pct = BRIGHTNESS_DAY_PCT;
+    static int64_t ramp_start_ms = 0;
+    static int last_applied_pct = -1;
+
+    int64_t now_ms = esp_timer_get_time() / 1000;
+    bool raw_on = (gpio_get_level(HEADLIGHT_GPIO) == 0);   // active LOW
+
+    if (raw_on != raw_last) {
+        raw_last = raw_on;
+        debounce_since_ms = now_ms;
+    }
+
+    int64_t elapsed = now_ms - ramp_start_ms;
+    int current_pct = (elapsed >= BRIGHTNESS_RAMP_MS)
+        ? ramp_to_pct
+        : ramp_from_pct + (int)((int64_t)(ramp_to_pct - ramp_from_pct) * elapsed / BRIGHTNESS_RAMP_MS);
+
+    if ((now_ms - debounce_since_ms) >= HEADLIGHT_DEBOUNCE_MS && raw_on != headlights_on) {
+        headlights_on = raw_on;
+        ramp_from_pct = current_pct;
+        ramp_to_pct = headlights_on ? BRIGHTNESS_NIGHT_PCT : BRIGHTNESS_DAY_PCT;
+        ramp_start_ms = now_ms;
+        current_pct = ramp_from_pct;
+        #if ENABLE_LOGS
+            ESP_LOGI("BRIGHTNESS", "headlights_on=%d -> ramping %d%% to %d%%", headlights_on, ramp_from_pct, ramp_to_pct);
+        #endif
+    }
+
+    if (current_pct != last_applied_pct) {
+        bsp_display_brightness_set(current_pct);
+        last_applied_pct = current_pct;
     }
 }
 
@@ -522,9 +593,13 @@ void gauge_timer(lv_timer_t * t) {
     int miles = odometer_get_miles();
     update_odometer(miles);
 
+    // update brightness (headlight sense)
+    update_brightness();
+
     // update AFR
-    update_afr(g_gauge_data.afr, g_gauge_data.afr_temp_c);
-    update_afr_status(g_gauge_data.afr_temp_c);
+    afr_temp_state_t afr_state = afr_classify_temp(g_gauge_data.afr_temp_c);
+    update_afr(g_gauge_data.afr, afr_state);
+    update_afr_status(g_gauge_data.afr_temp_c, afr_state);
 
     //update temp
     update_water_temp(g_gauge_data.water_temp_c, g_gauge_data.water_temp_valid);
@@ -543,19 +618,10 @@ void gauge_timer(lv_timer_t * t) {
 
 
 
+// NTC Beta-model conversion (CLAUDE.md Sec.3): R25=730R, Beta=3763.
 float resistance_to_C(float R) {
-    // Table lookup with linear interpolation between measured sender points.
-    // The resistance table is descending as temperature rises.
-    if (R >= sensorR[0]) return tempC[0];
-    if (R <= sensorR[TEMP_SENSOR_TABLE_SIZE - 1]) return tempC[TEMP_SENSOR_TABLE_SIZE - 1];
-
-    for (int i = 0; i < TEMP_SENSOR_TABLE_SIZE - 1; i++) {
-        if (R <= sensorR[i] && R >= sensorR[i+1]) {
-            float t = tempC[i] + (sensorR[i] - R) * (tempC[i+1] - tempC[i]) / (sensorR[i] - sensorR[i+1]);
-            return t;
-        }
-    }
-    return tempC[0];
+    float inv_t = 1.0f / TEMP_T0_KELVIN + logf(R / TEMP_R25_OHMS) / TEMP_BETA;
+    return 1.0f / inv_t - 273.15f;
 }
 
 
@@ -625,21 +691,27 @@ static void afr_parse_definitions(const char *text) {
         if (!found_afr && (afr_stristr(line, "A/F") || afr_stristr(line, "AFR"))) {
             afr_field_index = atoi(line);
             found_afr = true;
-            ESP_LOGI(TAG_AFR, "Discovered AFR field at index %d: %s", afr_field_index, line);
+            #if ENABLE_LOGS
+                ESP_LOGI(TAG_AFR, "Discovered AFR field at index %d: %s", afr_field_index, line);
+            #endif
         } else if (!found_temp && afr_stristr(line, "LSU")) {
             afr_temp_field_index = atoi(line);
             found_temp = true;
-            ESP_LOGI(TAG_AFR, "Discovered sensor temp field at index %d: %s", afr_temp_field_index, line);
+            #if ENABLE_LOGS
+                ESP_LOGI(TAG_AFR, "Discovered sensor temp field at index %d: %s", afr_temp_field_index, line);
+            #endif
         }
         line = strtok_r(NULL, "\r\n", &saveptr);
     }
 
-    if (!found_afr) {
-        ESP_LOGW(TAG_AFR, "GETDEFINITIONS didn't mention A/F or AFR - keeping default field index %d", afr_field_index);
-    }
-    if (!found_temp) {
-        ESP_LOGW(TAG_AFR, "GETDEFINITIONS didn't mention LSU temp - keeping default field index %d", afr_temp_field_index);
-    }
+    #if ENABLE_LOGS
+        if (!found_afr) {
+            ESP_LOGW(TAG_AFR, "GETDEFINITIONS didn't mention A/F or AFR - keeping default field index %d", afr_field_index);
+        }
+        if (!found_temp) {
+            ESP_LOGW(TAG_AFR, "GETDEFINITIONS didn't mention LSU temp - keeping default field index %d", afr_temp_field_index);
+        }
+    #endif
 }
 
 typedef struct {
@@ -695,6 +767,15 @@ static int afr_send_command(const char *cmd, uint8_t *buf, size_t buf_size) {
     return len;
 }
 
+// Sends an AFR setup command and logs its reply under `tag`, if any.
+static void afr_send_and_log(const char *cmd, const char *tag, uint8_t *buf, size_t buf_size) {
+    if (afr_send_command(cmd, buf, buf_size) > 0) {
+        #if ENABLE_LOGS
+            ESP_LOGI(TAG_AFR, "%s: %s", tag, (char *)buf);
+        #endif
+    }
+}
+
 void afr_task(void *arg) {
     // Request/response protocol, not a continuous stream: only talks to the
     // Spartan while g_afr_enabled (set by update_afr_power_gate once RPM has
@@ -715,25 +796,25 @@ void afr_task(void *arg) {
             // Give the sensor/level shifter a moment to come up cleanly.
             vTaskDelay(pdMS_TO_TICKS(200));
 
-            if (afr_send_command("GETHW\r\n", buf, sizeof(buf)) > 0)
-                ESP_LOGI(TAG_AFR, "GETHW: %s", (char *)buf);
-
-            if (afr_send_command("GETFW\r\n", buf, sizeof(buf)) > 0)
-                ESP_LOGI(TAG_AFR, "GETFW: %s", (char *)buf);
+            afr_send_and_log("GETHW\r\n", "GETHW", buf, sizeof(buf));
+            afr_send_and_log("GETFW\r\n", "GETFW", buf, sizeof(buf));
 
             // Our power gate (update_afr_power_gate()) enables the sensor
             // once RPM has merely been sustained for 30s, which doesn't
             // guarantee the exhaust near the sensor bung is hot yet - this
             // tells the controller to wait (up to 10 min) for exhaust gas to
             // reach 350C before driving the heater, avoiding thermal shock.
-            if (afr_send_command("SETSLOWHEAT3\r\n", buf, sizeof(buf)) > 0)
-                ESP_LOGI(TAG_AFR, "SETSLOWHEAT3: %s", (char *)buf);
+            afr_send_and_log("SETSLOWHEAT3\r\n", "SETSLOWHEAT3", buf, sizeof(buf));
 
             if (afr_send_command("GETDEFINITIONS\r\n", buf, sizeof(buf)) > 0) {
-                ESP_LOGI(TAG_AFR, "GETDEFINITIONS: %s", (char *)buf);
+                #if ENABLE_LOGS
+                    ESP_LOGI(TAG_AFR, "GETDEFINITIONS: %s", (char *)buf);
+                #endif
                 afr_parse_definitions((char *)buf);
             } else {
-                ESP_LOGW(TAG_AFR, "No response to GETDEFINITIONS - keeping default field order");
+                #if ENABLE_LOGS
+                    ESP_LOGW(TAG_AFR, "No response to GETDEFINITIONS - keeping default field order");
+                #endif
             }
             queried_definitions = true;
         }
@@ -747,7 +828,9 @@ void afr_task(void *arg) {
                     ESP_LOGI(TAG_AFR, "G: %s -> afr=%.2f temp=%.0fC", (char *)buf, g_gauge_data.afr, g_gauge_data.afr_temp_c);
                 #endif
             } else {
-                ESP_LOGW(TAG_AFR, "Unparsable G response: %s", (char *)buf);
+                #if ENABLE_LOGS
+                    ESP_LOGW(TAG_AFR, "Unparsable G response: %s", (char *)buf);
+                #endif
             }
         }
 
@@ -927,50 +1010,52 @@ void gps_task(void *arg) {
 
 
 //------------------------------ADC_UART---------------------------------------//
-static adc_oneshot_unit_handle_t g_adc2_handle;
-static adc_cali_handle_t g_adc2_cali_handle;
+static adc_oneshot_unit_handle_t g_adc1_handle;
+static adc_cali_handle_t g_adc1_cali_handle;
 
 static void adc_global_init(void) {
     // ADC attenuation is configured once at boot.  Individual reads below are
     // sampled and averaged per sensor to reduce noise.
     adc_oneshot_unit_init_cfg_t unit_config = {
-        .unit_id = ADC_UNIT_2,
+        .unit_id = ADC_UNIT_1,
     };
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_config, &g_adc2_handle));
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_config, &g_adc1_handle));
 
     adc_oneshot_chan_cfg_t chan_config = {
         .bitwidth = ADC_WIDTH,
         .atten = ADC_ATTEN,
     };
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(g_adc2_handle, WATER_TEMP_ADC_CHANNEL, &chan_config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(g_adc1_handle, WATER_TEMP_ADC_CHANNEL, &chan_config));
 
     // Raw ADC counts aren't linearly related to voltage, so use IDF's curve-fitting
     // calibration to get real millivolts instead of a hand-rolled reference constant.
     adc_cali_curve_fitting_config_t cali_config = {
-        .unit_id = ADC_UNIT_2,
+        .unit_id = ADC_UNIT_1,
         .chan = WATER_TEMP_ADC_CHANNEL,
         .atten = ADC_ATTEN,
         .bitwidth = ADC_WIDTH,
     };
-    ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali_config, &g_adc2_cali_handle));
+    ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali_config, &g_adc1_cali_handle));
 
-    ESP_LOGI("ADC", "ADC Global Init Complete");
+    #if ENABLE_LOGS
+        ESP_LOGI("ADC", "ADC Global Init Complete");
+    #endif
 }
 
 // Averages `samples` raw ADC reads, then converts the average to a calibrated
 // millivolt reading.
-int sample_sum_adc2_mv(adc_channel_t adc_channel, int samples){
+int sample_sum_adc1_mv(adc_channel_t adc_channel, int samples){
     uint32_t sum = 0;
     int raw = 0;
 
     for (int i = 0; i < samples; i++) {
-        adc_oneshot_read(g_adc2_handle, adc_channel, &raw);
+        adc_oneshot_read(g_adc1_handle, adc_channel, &raw);
         sum += raw;
     }
 
     int avg_raw = sum / samples;
     int millivolts = 0;
-    adc_cali_raw_to_voltage(g_adc2_cali_handle, avg_raw, &millivolts);
+    adc_cali_raw_to_voltage(g_adc1_cali_handle, avg_raw, &millivolts);
     return millivolts;
 }
 
@@ -1023,10 +1108,11 @@ static int rpm_read_and_reset(void) {
     return (int)(((int64_t)count * 60000000LL) / (RPM_PULSES_PER_REV * elapsed_us));
 }
 
-// Enables the AFR sensor's power (BTS7004) and UART level shifter (TXB0104D)
-// once RPM has been sustained above RPM_MIN_RUNNING for RPM_QUALIFY_MS, and
-// keeps them on through brief dips - only powering back off once RPM has
-// been genuinely near zero (engine stopped, not just idling low) for
+// Enables the AFR sensor's power (BTS7004) - which also powers the fixed-
+// direction UART level shifters' 5V side, the only "enable" they have - once
+// RPM has been sustained above RPM_MIN_RUNNING for RPM_QUALIFY_MS, and keeps
+// it on through brief dips - only powering back off once RPM has been
+// genuinely near zero (engine stopped, not just idling low) for
 // RPM_STOPPED_HOLD_MS. This avoids repeatedly power-cycling the wideband
 // sensor's heater on every momentary idle fluctuation.
 static void update_afr_power_gate(int rpm) {
@@ -1040,10 +1126,11 @@ static void update_afr_power_gate(int rpm) {
             if (now_ms - stopped_since_ms >= RPM_STOPPED_HOLD_MS) {
                 g_afr_enabled = false;
                 gpio_set_level(AFR_ENABLE_GPIO, 0);
-                gpio_set_level(AFR_OE_GPIO, 0);
                 qualifying_since_ms = -1;
                 stopped_since_ms = -1;
-                ESP_LOGI(TAG_AFR, "Engine stopped - AFR sensor powered off");
+                #if ENABLE_LOGS
+                    ESP_LOGI(TAG_AFR, "Engine stopped - AFR sensor powered off");
+                #endif
             }
         } else {
             stopped_since_ms = -1;
@@ -1056,8 +1143,9 @@ static void update_afr_power_gate(int rpm) {
         if (now_ms - qualifying_since_ms >= RPM_QUALIFY_MS) {
             g_afr_enabled = true;
             gpio_set_level(AFR_ENABLE_GPIO, 1);
-            gpio_set_level(AFR_OE_GPIO, 1);
-            ESP_LOGI(TAG_AFR, "RPM sustained >= %d for %d ms - AFR sensor powered on", RPM_MIN_RUNNING, RPM_QUALIFY_MS);
+            #if ENABLE_LOGS
+                ESP_LOGI(TAG_AFR, "RPM sustained >= %d for %d ms - AFR sensor powered on", RPM_MIN_RUNNING, RPM_QUALIFY_MS);
+            #endif
         }
     } else {
         qualifying_since_ms = -1;
@@ -1070,6 +1158,8 @@ static void adc_task(void *arg) {
     int64_t last_temp_ms = 0;
     int64_t last_rpm_ms  = 0;
     static float water_filtered = -1;
+    int last_logged_water_temp_c = INT32_MIN;
+    int last_logged_rpm = INT32_MIN;
 
 
     while (1) {
@@ -1079,15 +1169,10 @@ static void adc_task(void *arg) {
         if (now_ms - last_temp_ms >= TEMP_UPDATE_DELAY) {
             last_temp_ms = now_ms;
 
-            // Water temp (ADC2)
-            int mv_water = sample_sum_adc2_mv(WATER_TEMP_ADC_CHANNEL, FILTER_SAMPLES_DEFAULT);
+            // Water temp (ADC1)
+            int mv_water = sample_sum_adc1_mv(WATER_TEMP_ADC_CHANNEL, FILTER_SAMPLES_DEFAULT);
             float R_water = read_temp_resistance(mv_water);
-            #if ENABLE_LOGS
-                ESP_LOGI(TAG_TEMP, "mv_water=%d R_water=%.1f", mv_water, R_water);
-                ESP_LOGI(TAG_TEMP,"Water: %.1fC",g_gauge_data.water_temp_c);
-            #endif
-
-            bool water_sensor_connected = (R_water >= 0 && R_water < TEMP_SENSOR_DISCONNECTED_R);
+            bool water_sensor_connected = (R_water != TEMP_R_INVALID);
             g_gauge_data.water_temp_valid = water_sensor_connected;
 
             if (water_sensor_connected) {
@@ -1098,6 +1183,15 @@ static void adc_task(void *arg) {
                 water_filtered = water_filtered * 0.95f + water_new * 0.05f;
 
                 g_gauge_data.water_temp_c = water_filtered;
+
+                #if ENABLE_LOGS
+                    int water_temp_c_int = (int)g_gauge_data.water_temp_c;
+                    if (water_temp_c_int != last_logged_water_temp_c) {
+                        last_logged_water_temp_c = water_temp_c_int;
+                        ESP_LOGI(TAG_TEMP, "Water: %.1fC", g_gauge_data.water_temp_c);
+                        //ESP_LOGI(TAG_TEMP, "mv_water=%d R_water=%.1f", mv_water, R_water);
+                    }
+                #endif
             }
         }
 
@@ -1108,17 +1202,12 @@ static void adc_task(void *arg) {
             g_gauge_data.rpm = rpm;
             update_afr_power_gate(rpm);
             #if ENABLE_LOGS
-                ESP_LOGI("RPM", "rpm=%d", rpm);
+                if (rpm != last_logged_rpm) {
+                    last_logged_rpm = rpm;
+                    ESP_LOGI("RPM", "rpm=%d", rpm);
+                }
             #endif
         }
-
-        // AFR itself is read over UART once powered on - see AFR_UART_NUM
-        // (parser not yet implemented).
-
-        // Optional logging
-        #if ENABLE_LOGS
-           // ESP_LOGI(TAG_TEMP,"Water: %.1fC",g_gauge_data.water_temp_c);
-        #endif
 
         vTaskDelay(pdMS_TO_TICKS(ADC_UPDATE_PERIOD_MS));
     }
@@ -1235,15 +1324,31 @@ void app_main(void) {
     };
     bsp_display_start_with_config(&cfg);
 
+    // bsp_display_backlight_off() is just bsp_display_brightness_set(0) - the
+    // same call update_brightness() (via gauge_timer, created below) also
+    // makes. Setting it here, before gauge_timer exists, means there's only
+    // ever one writer to brightness at a time: 0% now to hide any initial
+    // garbage frame, then update_brightness() takes over completely once it
+    // starts ticking and brings it up to the correct day/night level itself.
+    bsp_display_backlight_off();
+    vTaskDelay(pdMS_TO_TICKS(100));
+
     adc_global_init();
     odometer_init();
 
-    // AFR power gate outputs - held low (disabled) until the RPM gate
+    // AFR power gate output - held low (disabled) until the RPM gate
     // qualifies (see update_afr_power_gate()).
     gpio_set_direction(AFR_ENABLE_GPIO, GPIO_MODE_OUTPUT);
-    gpio_set_direction(AFR_OE_GPIO, GPIO_MODE_OUTPUT);
     gpio_set_level(AFR_ENABLE_GPIO, 0);
-    gpio_set_level(AFR_OE_GPIO, 0);
+
+    // Headlight sense input - open-collector opto with an external pull-up
+    // already on board (R18), so this internal one is redundant when the
+    // carrier board is connected. It matters on the bench with the carrier
+    // board unplugged: without it GPIO50 floats and can read LOW, which looks
+    // like "headlights on" and forces night brightness during dev/debug.
+    gpio_set_direction(HEADLIGHT_GPIO, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(HEADLIGHT_GPIO, GPIO_PULLUP_ONLY);
+
     rpm_pcnt_init();
 
     ui_init();
@@ -1265,9 +1370,4 @@ void app_main(void) {
 
     uart_init(AFR_UART_NUM, AFR_TX_PIN, AFR_RX_PIN, 256, AFR_BAUD_RATE);
     xTaskCreatePinnedToCore(afr_task, "afr_task", 4096, NULL, 5, NULL, 0);
-
-    bsp_display_backlight_off();
-    vTaskDelay(pdMS_TO_TICKS(100)); 
-    bsp_display_brightness_set(50); 
-
 }
