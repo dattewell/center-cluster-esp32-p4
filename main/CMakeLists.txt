@@ -12,6 +12,7 @@ idf_component_register(
         "ui/screens/ui_OtherData.c"
         "ui/screens/ui_RPMAFR.c"
         "ui/screens/ui_BootScreen.c"
+        "ui/screens/ui_Settings.c"
         "ui/images/ui_img_bootscreen_png.c"
         "ui/images/ui_img_gauge_background_png.c"
         "ui/images/ui_img_gauge_png.c"

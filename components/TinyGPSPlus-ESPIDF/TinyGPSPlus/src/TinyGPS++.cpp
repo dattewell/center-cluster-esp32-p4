@@ -304,7 +304,7 @@ double TinyGPSPlus::distanceBetween(double lat1, double long1, double lat2, doub
   delta = sqrt(delta);
   double denom = (slat1 * slat2) + (clat1 * clat2 * cdlong);
   delta = atan2(delta, denom);
-  return delta * 6372795;
+  return delta * _GPS_EARTH_MEAN_RADIUS;
 }
 
 double TinyGPSPlus::courseTo(double lat1, double long1, double lat2, double long2)

@@ -1,5 +1,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
@@ -21,6 +22,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <time.h>
+#include <unistd.h>
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
@@ -28,22 +30,37 @@
 #include "esp_timer.h"
 #include "gps_wrapper.h"
 #include "odometer/odometer.h"
+#include "esp_core_dump.h"
+#include "esp_flash.h"
 
 
-//-----Pin Assignment---------//
+//-------------Build / feature flags-------------//
+#define ENABLE_LOGS true
+#define ADC_UPDATE_PERIOD_MS 10
+#define FILTER_SAMPLES_DEFAULT 8
 
+// DEMO_MODE used to live here as a compile-time flag. It's now g_demo_mode
+// (below, near g_afr_enabled) - a runtime toggle driven by ui_DemoSwitch on
+// the Settings screen via ChangeDemoMode(), not a rebuild.
+
+// Crash-dump relay + debug-log-tee to the SD card (see below). Was
+// temporarily disabled (2026-08-12) while isolating a taskLVGL deadlock in
+// lv_draw_add_task - root cause was LV_MEM_SIZE exhaustion (see lv_conf.h),
+// unrelated to this code. Re-enabled now that's fixed.
+#define SD_FEATURES_ENABLED 1
+//------------------------------------------------//
+
+//-------------GPS (u-blox M10)-------------//
 // GPS RX/TX per netlist (/GPS_TX net = J3 pin 7 = GPIO29 = ESP RX;
 // /GPS_RX net = J3 pin 15 = GPIO28 = ESP TX). Net names are from the
 // module's perspective, so ESP_RX reads the net called GPS_TX and vice versa.
 #define GPS_RX_PIN        29
 #define GPS_UART_NUM      UART_NUM_3
 #define GPS_TX_PIN        28
-
-// Coolant temp - GPIO20, ADC1_CHANNEL4, per netlist (Net-(J3-20): C3.2,
-// D7.3, R15.2). Confirmed on ADC1, not ADC2.
-#define WATER_TEMP_ADC_CHANNEL ADC_CHANNEL_4
-
-//--------------------------//
+#define GPS_BAUD_RATE     38400
+#define GPS_BUF_SIZE      1024
+#define GPS_MIN_VALID_MPH 3.0f
+//-------------------------------------------//
 
 //-------------RPM (coil/distributor via H11L1 optoisolator) - GPIO 47-------------//
 #define RPM_PULSE_GPIO       47
@@ -64,9 +81,9 @@
 // rather than stepping, per CLAUDE.md Sec.6's suggested behaviour.
 #define HEADLIGHT_GPIO          50
 #define HEADLIGHT_DEBOUNCE_MS   300
-#define BRIGHTNESS_DAY_PCT       50   // matches the existing boot default
-#define BRIGHTNESS_NIGHT_PCT     40
-#define BRIGHTNESS_RAMP_MS       1000
+#define BRIGHTNESS_DAY_PCT      50   // matches the existing boot default
+#define BRIGHTNESS_NIGHT_PCT    40
+#define BRIGHTNESS_RAMP_MS      1000
 //--------------------------------------------------------------------------------//
 
 //-------------AFR power gating (BTS7004 on GPIO51)-------------//
@@ -100,22 +117,17 @@
 #define AFR_BAUD_RATE  9600
 //--------------------------------------------------------------------//
 
-#define ENABLE_LOGS true
-#define ADC_UPDATE_PERIOD_MS 10
-#define FILTER_SAMPLES_DEFAULT 8
+//-------------ADC (shared by coolant temp + PROFET current sense, both ADC1)-------------//
+#define ADC_WIDTH ADC_BITWIDTH_12
+#define ADC_ATTEN ADC_ATTEN_DB_12
+//------------------------------------------------------------------------------------------//
 
-
-//------------GPS-----------//         
-#define GPS_BAUD_RATE     38400
-#define GPS_BUF_SIZE          1024
-#define GPS_MIN_VALID_MPH 3.0f
-//--------------------------//
-
-//--------UPDATE/REFRESH_DELAYS------//
+//-------------Coolant temperature (GPIO20 / ADC1_CH4)-------------//
+// Coolant temp - GPIO20, ADC1_CHANNEL4, per netlist (Net-(J3-20): C3.2,
+// D7.3, R15.2). Confirmed on ADC1, not ADC2.
+#define WATER_TEMP_ADC_CHANNEL ADC_CHANNEL_4
 #define TEMP_UPDATE_DELAY 250 // 4 updates a second
-//-----------------------------------//
 
-//-------------TEMP-------------//
 // Sender node: SENSOR_SUPPLY --[R_PULLUP]-- (node, straight into the ADC pin,
 // no external divider) --[sender]-- GND, with a 100nF cap on the node for
 // noise filtering. R_PULLUP is R1, ERJU6RD4700V (470R) per netlist/BOM -
@@ -123,8 +135,6 @@
 // the 10k firmware previously assumed.
 #define R_PULLUP       470.0f
 #define SENSOR_SUPPLY  3.3f
-#define ADC_WIDTH ADC_BITWIDTH_12
-#define ADC_ATTEN ADC_ATTEN_DB_12
 
 // NTC Beta-model conversion per CLAUDE.md Sec.3 - sender is R25=730R,
 // Beta=3763 (25/85C). Physics-based, accurate across the sender's whole
@@ -141,9 +151,10 @@
 #define TEMP_OPEN_MV    3150    // sender disconnected / broken wire
 #define TEMP_SHORT_MV     40    // sender or wire shorted to ground
 #define TEMP_R_INVALID  -1.0f
-//------------------------------//
+//--------------------------------------------------------------------//
 
-// Matches the initial lv_img_set_angle() set on ui_SpeedoNeedle in ui_MainSpeedo.c (0 mph rest position).
+//-------------Speedo (mph) needle angles-------------//
+// Matches the initial lv_image_set_rotation() set on ui_SpeedoNeedle in ui_MainSpeedo.c (0 mph rest position).
 #define SPEEDO_NEEDLE_REST_ANGLE   (-670)
 // How far the sweep rotates from rest before returning; sign/magnitude tuned by eye
 // against the dial artwork to land near the 80 mph mark, since this needle has no
@@ -153,6 +164,7 @@
 // readings - distinct from SPEEDO_SWEEP_ANGLE_DELTA above, which deliberately
 // overshoots past this for the boot-time sweep flourish.
 #define SPEEDO_NEEDLE_ANGLE_80MPH  (2110)
+//------------------------------------------------------//
 
 //-------------LOGGING------------//
 static const char *TAG_TEMP = "TEMP_SENSOR";
@@ -177,7 +189,24 @@ static gauge_data_t g_gauge_data;
 
 // Set by update_afr_power_gate(), read by afr_task() - true once the AFR
 // sensor's power (BTS7004) and UART level shifter (TXB0104D) are enabled.
+// Deliberately NOT touched by demo mode below - this reflects the real,
+// physical heater GPIO state, driven only by real RPM, regardless of what's
+// on screen. See afr_should_display_enabled() for the display-only concern.
 static volatile bool g_afr_enabled = false;
+
+// Runtime demo-mode toggle (ui_DemoSwitch on the Settings screen, wired via
+// ChangeDemoMode() below). Always starts false - deliberately not persisted
+// to NVS, so a power cycle never leaves the dash stuck showing synthetic
+// swept values instead of real sensor data.
+static volatile bool g_demo_mode = false;
+
+// The AFR gauge should render as "active" both when the sensor is genuinely
+// powered (g_afr_enabled) and while demo mode is sweeping it for a bench
+// test - but demo mode must never touch g_afr_enabled itself, since that
+// also drives the real PROFET heater GPIO (see update_afr_power_gate()).
+static bool afr_should_display_enabled(void) {
+    return g_afr_enabled || g_demo_mode;
+}
 
 
 //---------------------------------------//
@@ -210,7 +239,7 @@ static void update_gauge_channel(const gauge_channel_t *ch, float new_value, int
     #if ENABLE_LOGS
         ESP_LOGI(ch->log_tag, "value=%.1f angle=%d", new_value, angle);
     #endif
-    lv_img_set_angle(ch->needle, angle);
+    lv_image_set_rotation(ch->needle, angle);
 }
 
 //-------------------------AFR sensor (LSU ADV) temperature status-------------------------//
@@ -269,10 +298,11 @@ static uint32_t afr_temp_state_color(afr_temp_state_t state) {
 // the AFR label/needle (mirrored onto ui_AfrV2 on the RPM/AFR screen).
 // Shows "--" instead while the AFR sensor isn't powered on at all (g_afr_enabled
 // false - no sustained RPM, see update_afr_power_gate()), or blanks both labels
-// while the sensor is powered but in the TOO_HOT alarm state (same condition
-// that lights up ui_AFRStatusBad), since the reading is unreliable either way.
-// Takes the already-classified temperature state (see gauge_timer) rather than
-// reclassifying it itself, since update_afr_status() needs the same classification.
+// whenever ui_AFRStatusBad is the one lit up (Cold/Heating/Too Hot - see
+// update_afr_status()), since the reading is unreliable in all three of those
+// bands, not just Too Hot. Takes the already-classified temperature state (see
+// gauge_timer) rather than reclassifying it itself, since update_afr_status()
+// needs the same classification.
 
 // AFR gauge angle range, calibrated against the dial artwork.
 #define AFR_GAUGE_MIN_VALUE    10.0f
@@ -281,7 +311,7 @@ static uint32_t afr_temp_state_color(afr_temp_state_t state) {
 #define AFR_NEEDLE_ANGLE_MAX   1650
 
 static void update_afr(float new_value, afr_temp_state_t afr_state){
-    if (!g_afr_enabled) {
+    if (!afr_should_display_enabled()) {
         if (strcmp(lv_label_get_text(ui_AfrV), "--") != 0) {
             lv_label_set_text(ui_AfrV, "--");
             lv_label_set_text(ui_AfrV2, "--");
@@ -290,7 +320,7 @@ static void update_afr(float new_value, afr_temp_state_t afr_state){
         return;
     }
 
-    if (afr_state == AFR_TEMP_STATE_TOO_HOT) {
+    if (afr_state != AFR_TEMP_STATE_OPERATING && afr_state != AFR_TEMP_STATE_WARNING_HOT) {
         if (strcmp(lv_label_get_text(ui_AfrV), "") != 0) {
             lv_label_set_text(ui_AfrV, "");
             lv_label_set_text(ui_AfrV2, "");
@@ -299,10 +329,10 @@ static void update_afr(float new_value, afr_temp_state_t afr_state){
         return;
     }
 
-    lv_obj_clear_flag(ui_AfrD, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(ui_AfrD, LV_OBJ_FLAG_HIDDEN);
     int16_t afr_angle = (int16_t)((new_value - AFR_GAUGE_MIN_VALUE) * (AFR_NEEDLE_ANGLE_MAX - AFR_NEEDLE_ANGLE_MIN)
         / (AFR_GAUGE_MAX_VALUE - AFR_GAUGE_MIN_VALUE) + AFR_NEEDLE_ANGLE_MIN);
-    gauge_channel_t ch = { .value_label = ui_AfrV, .mirror_label = ui_AfrV2, .needle = ui_AfrD, .log_tag = "AFR", .angle_min = 845, .angle_max = 1640, .decimals = 1 };
+    gauge_channel_t ch = { .value_label = ui_AfrV, .mirror_label = ui_AfrV2, .needle = ui_AfrD, .log_tag = "AFR", .angle_min = AFR_NEEDLE_ANGLE_MIN, .angle_max = AFR_NEEDLE_ANGLE_MAX, .decimals = 1 };
     update_gauge_channel(&ch, new_value, afr_angle);
 }
 
@@ -336,7 +366,7 @@ static void update_water_temp(float new_value, bool valid){
         return;
     }
 
-    lv_obj_clear_flag(ui_TempD, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_remove_flag(ui_TempD, LV_OBJ_FLAG_HIDDEN);
     int16_t temp_angle = (int16_t)(TEMP_NEEDLE_ANGLE_MAX - (new_value - TEMP_GAUGE_MIN_VALUE)
         * (TEMP_NEEDLE_ANGLE_MAX - TEMP_NEEDLE_ANGLE_MIN) / (TEMP_GAUGE_MAX_VALUE - TEMP_GAUGE_MIN_VALUE));
     gauge_channel_t ch = { .value_label = ui_TempV, .mirror_label = NULL, .needle = ui_TempD, .log_tag = "TEMP", .angle_min = TEMP_NEEDLE_ANGLE_MIN, .angle_max = TEMP_NEEDLE_ANGLE_MAX, .decimals = 0 };
@@ -381,14 +411,14 @@ static void update_afr_status(float temp_c, afr_temp_state_t state) {
     // would suppress this initial forced blank.
     static bool was_enabled = true;
 
-    if (valid_state_dropped(&was_enabled, g_afr_enabled)) {
+    if (valid_state_dropped(&was_enabled, afr_should_display_enabled())) {
         lv_label_set_text(ui_AFRStatusGood, "");
         lv_label_set_text(ui_AFRStatusBad, "");
         lv_label_set_text(ui_AFRStatus, "");
         last_state = (afr_temp_state_t)-1;
         last_status_text[0] = '\0';
     }
-    if (!g_afr_enabled) return;
+    if (!afr_should_display_enabled()) return;
 
     bool state_changed = (state != last_state);
     #if ENABLE_LOGS
@@ -480,6 +510,12 @@ void update_odometer(int miles) {
     }
 }
 
+// km/h gauge angle range, calibrated against the dial artwork. Needle angle
+// decreases as speed increases (starts at KMH_NEEDLE_ANGLE_MAX for 0 km/h).
+#define KMH_GAUGE_MAX_VALUE     105.0f
+#define KMH_NEEDLE_ANGLE_MIN    -590
+#define KMH_NEEDLE_ANGLE_MAX    615
+
 // Refreshes the mph/km-h speed labels and needles. Shows "--" on both while
 // GPS has no fix, since a stale/zero speed reading would otherwise look like
 // a real value; and de-jitters near-zero GPS noise by treating anything
@@ -492,6 +528,11 @@ void update_speedo(float speed_mph, bool has_fix) {
         lv_label_set_text(ui_SpeedoValue, "--");
         lv_label_set_text(ui_SpeedV, "--");
         lv_label_set_text(ui_SpeedV2, "--");
+        // Needles otherwise stay frozen at whatever angle they last showed
+        // (e.g. mid-sweep from demo mode) instead of returning to 0, since
+        // the angle update below is skipped entirely once !has_fix returns.
+        lv_image_set_rotation(ui_SpeedoNeedle, SPEEDO_NEEDLE_REST_ANGLE);
+        lv_image_set_rotation(ui_SpeedD, KMH_NEEDLE_ANGLE_MAX);
         last_speed = -1;   // force a redraw once the fix comes back
     }
     if (!has_fix) return;
@@ -502,12 +543,13 @@ void update_speedo(float speed_mph, bool has_fix) {
     if (speed_int != last_speed) {
         int16_t mph_angle = (int16_t)(SPEEDO_NEEDLE_REST_ANGLE +
             speed_mph * (SPEEDO_NEEDLE_ANGLE_80MPH - SPEEDO_NEEDLE_REST_ANGLE) / 80);
-        gauge_channel_t ch = { .value_label = ui_SpeedoValue, .mirror_label = NULL, .needle = ui_SpeedoNeedle, .log_tag = "Mph_Speed", .angle_min = SPEEDO_NEEDLE_REST_ANGLE, .angle_max = SPEEDO_SWEEP_ANGLE_DELTA, .decimals = 0 };
+        gauge_channel_t ch = { .value_label = ui_SpeedoValue, .mirror_label = NULL, .needle = ui_SpeedoNeedle, .log_tag = "Mph_Speed", .angle_min = SPEEDO_NEEDLE_REST_ANGLE, .angle_max = SPEEDO_NEEDLE_ANGLE_80MPH, .decimals = 0 };
         update_gauge_channel(&ch, speed_mph, mph_angle);
 
         int speed_kmh = (int)(speed_mph * 1.609344f);
-        int16_t kmh_angle = (int16_t)(595 -speed_kmh*1143/100);
-        gauge_channel_t ch2 = { .value_label = ui_SpeedV, .mirror_label = ui_SpeedV2, .needle = ui_SpeedD, .log_tag = "Kmh_Speed", .angle_min = 595, .angle_max = 1143, .decimals = 0 };
+        int16_t kmh_angle = (int16_t)(KMH_NEEDLE_ANGLE_MAX
+            + speed_kmh * (KMH_NEEDLE_ANGLE_MIN - KMH_NEEDLE_ANGLE_MAX) / KMH_GAUGE_MAX_VALUE);
+        gauge_channel_t ch2 = { .value_label = ui_SpeedV, .mirror_label = ui_SpeedV2, .needle = ui_SpeedD, .log_tag = "Kmh_Speed", .angle_min = KMH_NEEDLE_ANGLE_MIN, .angle_max = KMH_NEEDLE_ANGLE_MAX, .decimals = 0 };
         update_gauge_channel(&ch2, speed_kmh, kmh_angle );
 
         last_speed = speed_int;
@@ -539,6 +581,7 @@ static void update_gps_time_display(void) {
 
     struct tm nz_tm;
     bool valid = gps_get_nz_local_time(&nz_tm);
+    bool was_valid_before = last_valid;
 
     if (valid_state_dropped(&last_valid, valid)) {
         lv_label_set_text(ui_TimeV, "");
@@ -547,6 +590,16 @@ static void update_gps_time_display(void) {
         last_min = -1;   // force a redraw once time comes back
     }
     if (!valid) return;
+
+    // One-time real-world anchor for uptime-stamped logs (including the SD
+    // debug log, which debug_log_tee_vprintf() mirrors this into automatically
+    // - no SD-specific code needed here). Logged once per validity streak, not
+    // every tick, same as the display update below.
+    if (!was_valid_before) {
+        ESP_LOGI(TAG_GPS, "GPS time acquired: %04d-%02d-%02d %02d:%02d:%02d NZT, uptime=%lldms",
+                 nz_tm.tm_year + 1900, nz_tm.tm_mon + 1, nz_tm.tm_mday,
+                 nz_tm.tm_hour, nz_tm.tm_min, nz_tm.tm_sec, (long long)now_ms);
+    }
 
     if (nz_tm.tm_hour != last_hour || nz_tm.tm_min != last_min) {
         char buf[6];
@@ -621,7 +674,7 @@ void gauge_timer(lv_timer_t * t) {
     update_water_temp(g_gauge_data.water_temp_c, g_gauge_data.water_temp_valid);
 
     //update speed
-    update_speedo(g_gauge_data.speed_mph, gps_has_fix());
+    update_speedo(g_gauge_data.speed_mph, g_demo_mode ? true : gps_has_fix());
 
     //update RPM
     update_rpm(g_gauge_data.rpm);
@@ -838,8 +891,15 @@ void afr_task(void *arg) {
         if (afr_send_command("G\r\n", buf, sizeof(buf)) > 0) {
             afr_reading_t reading;
             if (afr_parse_g_response((char *)buf, &reading)) {
-                if (reading.afr_valid)  g_gauge_data.afr = reading.afr;
-                if (reading.temp_valid) g_gauge_data.afr_temp_c = reading.temp_c;
+                // Gated so a real, already-powered AFR sensor (g_afr_enabled
+                // true from sustained real RPM) can't race demo_task's
+                // synthetic writes to the same fields if demo mode gets
+                // toggled on mid-drive. See adc_task/gps_task for the same
+                // pattern.
+                if (!g_demo_mode) {
+                    if (reading.afr_valid)  g_gauge_data.afr = reading.afr;
+                    if (reading.temp_valid) g_gauge_data.afr_temp_c = reading.temp_c;
+                }
                 #if ENABLE_LOGS
                     ESP_LOGI(TAG_AFR, "G: %s -> afr=%.2f temp=%.0fC", (char *)buf, g_gauge_data.afr, g_gauge_data.afr_temp_c);
                 #endif
@@ -954,7 +1014,11 @@ void gps_task(void *arg) {
 
         if (has_fix) {
             float new_speed = gps_get_speed_mph();
-            g_gauge_data.speed_mph = new_speed;
+            // Odometer accumulation below stays tied to real GPS movement
+            // regardless of demo mode - only the display-facing field is
+            // gated, so distance travelled is never affected by what's
+            // shown on screen. See adc_task for the same pattern.
+            if (!g_demo_mode) g_gauge_data.speed_mph = new_speed;
 
             if (sats_used >= 5 && hdop < 3.5f && gps_location_updated()){
                 double current_lat = gps_get_lat();
@@ -1171,6 +1235,13 @@ static void update_afr_power_gate(int rpm) {
 static void adc_task(void *arg) {
     // Main analog/pulse acquisition loop.  Each sensor group has its own
     // cadence so slow-changing values like temp do not waste cycles.
+    //
+    // Always runs, even while g_demo_mode is on - real sensors keep being
+    // sampled and logged (useful diagnostic, and update_afr_power_gate()
+    // must always reflect real RPM regardless of what's on screen - see
+    // g_afr_enabled's comment). Only the writes into g_gauge_data that feed
+    // the display are skipped while demo mode owns them, so this task and
+    // demo_task never race over the same fields.
     int64_t last_temp_ms = 0;
     int64_t last_rpm_ms  = 0;
     static float water_filtered = -1;
@@ -1189,7 +1260,7 @@ static void adc_task(void *arg) {
             int mv_water = sample_sum_adc1_mv(WATER_TEMP_ADC_CHANNEL, FILTER_SAMPLES_DEFAULT);
             float R_water = read_temp_resistance(mv_water);
             bool water_sensor_connected = (R_water != TEMP_R_INVALID);
-            g_gauge_data.water_temp_valid = water_sensor_connected;
+            if (!g_demo_mode) g_gauge_data.water_temp_valid = water_sensor_connected;
 
             if (water_sensor_connected) {
                 float water_new = resistance_to_C(R_water);
@@ -1198,13 +1269,13 @@ static void adc_task(void *arg) {
 
                 water_filtered = water_filtered * 0.95f + water_new * 0.05f;
 
-                g_gauge_data.water_temp_c = water_filtered;
+                if (!g_demo_mode) g_gauge_data.water_temp_c = water_filtered;
 
                 #if ENABLE_LOGS
-                    int water_temp_c_int = (int)g_gauge_data.water_temp_c;
+                    int water_temp_c_int = (int)water_filtered;
                     if (water_temp_c_int != last_logged_water_temp_c) {
                         last_logged_water_temp_c = water_temp_c_int;
-                        ESP_LOGI(TAG_TEMP, "Water: %.1fC", g_gauge_data.water_temp_c);
+                        ESP_LOGI(TAG_TEMP, "Water: %.1fC", water_filtered);
                         //ESP_LOGI(TAG_TEMP, "mv_water=%d R_water=%.1f", mv_water, R_water);
                     }
                 #endif
@@ -1215,7 +1286,7 @@ static void adc_task(void *arg) {
         if (now_ms - last_rpm_ms >= RPM_SAMPLE_MS) {
             last_rpm_ms = now_ms;
             int rpm = rpm_read_and_reset();
-            g_gauge_data.rpm = rpm;
+            if (!g_demo_mode) g_gauge_data.rpm = rpm;
             update_afr_power_gate(rpm);
             #if ENABLE_LOGS
                 if (rpm != last_logged_rpm) {
@@ -1238,7 +1309,7 @@ static void adc_task(void *arg) {
 
 // LVGL animation exec callback: applies the current animated angle to the needle image.
 static void speedo_needle_angle_anim_cb(void *obj, int32_t angle) {
-    lv_img_set_angle((lv_obj_t *)obj, (int16_t)angle);
+    lv_image_set_rotation((lv_obj_t *)obj, (int16_t)angle);
 }
 
 // Plays the boot-time speedometer needle sweep (rest -> swept angle -> rest).
@@ -1256,6 +1327,99 @@ static void start_speedo_boot_sweep(void) {
     lv_anim_start(&a);
 }
 
+//-------------------------demo mode-------------------------//
+// Triangle wave 0..1..0 over period_ms, phase-shifted by an arbitrary offset
+// per gauge so they don't all peak/trough together.
+static float demo_wave01(int64_t now_ms, int period_ms, int phase_ms) {
+    int64_t t = (now_ms + phase_ms) % period_ms;
+    int64_t half = period_ms / 2;
+    return (t < half) ? ((float)t / half) : ((float)(period_ms - t) / half);
+}
+
+// Always running (started unconditionally in app_main()), but only writes
+// to g_gauge_data while g_demo_mode is on - toggled at runtime via
+// ChangeDemoMode() (ui_DemoSwitch, Settings screen), not a compile-time
+// choice anymore. Deliberately does not touch g_afr_enabled - see its
+// comment and afr_should_display_enabled() for why the AFR gauge still
+// sweeps correctly without this task ever touching the real heater GPIO.
+static void demo_task(void *arg) {
+    while (1) {
+        if (g_demo_mode) {
+            int64_t now_ms = esp_timer_get_time() / 1000;
+
+            g_gauge_data.rpm = (int)(demo_wave01(now_ms, 4000, 0) * RPM_DIAL_MAX_RPM);
+            g_gauge_data.speed_mph = demo_wave01(now_ms, 6000, 1500) * 80.0f;
+            g_gauge_data.water_temp_valid = true;
+            g_gauge_data.water_temp_c = TEMP_GAUGE_MIN_VALUE
+                + demo_wave01(now_ms, 10000, 3000) * (TEMP_GAUGE_MAX_VALUE - TEMP_GAUGE_MIN_VALUE);
+            g_gauge_data.afr = AFR_GAUGE_MIN_VALUE
+                + demo_wave01(now_ms, 7000, 2000) * (AFR_GAUGE_MAX_VALUE - AFR_GAUGE_MIN_VALUE);
+            g_gauge_data.afr_temp_c = 200.0f + demo_wave01(now_ms, 9000, 4500) * 750.0f;  // sweeps all status bands
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+// Persistent "DEMO" badge, visible on every screen whenever g_demo_mode is
+// on - a driver glancing at the dash must never mistake a synthetic sweep
+// for real sensor data. Built on lv_layer_top(), LVGL's dedicated overlay
+// layer that renders above whichever of the three SquareLine screens is
+// currently active, rather than being added to each screen individually
+// (which would mean hand-editing SquareLine-generated files that get
+// overwritten on every re-export).
+static lv_obj_t *s_demo_badge = NULL;
+
+static void demo_badge_init(void) {
+    s_demo_badge = lv_label_create(lv_layer_top());
+    lv_label_set_text(s_demo_badge, "DEMO");
+    lv_obj_set_style_bg_color(s_demo_badge, lv_color_hex(0xE0242B), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_demo_badge, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(s_demo_badge, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(s_demo_badge, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_hor(s_demo_badge, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_ver(s_demo_badge, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(s_demo_badge, 6, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_align(s_demo_badge, LV_ALIGN_TOP_MID, 0, 6);
+    lv_obj_add_flag(s_demo_badge, LV_OBJ_FLAG_HIDDEN);   // g_demo_mode starts false
+}
+
+// Wired to ui_DemoSwitch (Settings screen) via ui_event_DemoSwitch() in the
+// SquareLine-generated ui_Settings.c, which calls this on LV_EVENT_PRESSED -
+// touch-down. lv_switch has its own built-in click-to-toggle behavior that
+// runs independently and fires LV_EVENT_VALUE_CHANGED once the toggle
+// actually settles - manually writing LV_STATE_CHECKED here as well (an
+// earlier version of this did) fights that internal logic through an
+// uncoordinated second path, which was producing both a visibly out-of-sync
+// switch and, worse, apparent lockups (consistent with tripping an LVGL
+// internal assert into LV_ASSERT_HANDLER's deliberate while(1) halt - see
+// lv_conf.h). So this is intentionally a no-op with respect to switch/demo
+// state now: demo_switch_value_changed_cb() below (LV_EVENT_VALUE_CHANGED)
+// is the only thing that reads or writes g_demo_mode from the UI side.
+void ChangeDemoMode(lv_event_t * e) {
+}
+
+// The actual demo-mode toggle handler - registered directly on ui_DemoSwitch
+// for LV_EVENT_VALUE_CHANGED, which lv_switch fires itself once its own
+// internal toggle has genuinely completed. Reads the settled state rather
+// than flipping a separate flag, so there's exactly one writer of
+// LV_STATE_CHECKED (LVGL's own switch logic) and exactly one reader
+// (this). Also owns showing/hiding the DEMO badge, since that's a pure
+// function of the now-correct g_demo_mode.
+static void demo_switch_value_changed_cb(lv_event_t *e) {
+    g_demo_mode = lv_obj_has_state(ui_DemoSwitch, LV_STATE_CHECKED);
+
+    if (g_demo_mode) {
+        lv_obj_remove_flag(s_demo_badge, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_demo_badge, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    #if ENABLE_LOGS
+        ESP_LOGI("DEMO", "demo mode -> %s", g_demo_mode ? "ON" : "OFF");
+    #endif
+}
+
 //-------------------------last-screen persistence-------------------------//
 // Remembers which of the three swipeable screens (MainSpeedo/OtherData/RPMAFR)
 // was on-screen when the unit was last powered off, so boot returns there
@@ -1263,7 +1427,7 @@ static void start_speedo_boot_sweep(void) {
 // SquareLine-generated swipe handlers already wired up in ui_MainSpeedo.c/
 // ui_OtherData.c/ui_RPMAFR.c, so rather than editing those (they get
 // overwritten on every SquareLine re-export), this listens for LVGL's own
-// LV_EVENT_SCREEN_LOADED event, which _ui_screen_change()'s lv_scr_load_anim()
+// LV_EVENT_SCREEN_LOADED event, which _ui_screen_change()'s lv_screen_load_anim()
 // fires on any screen change regardless of what triggered it.
 #define UI_STATE_NAMESPACE "ui_state"
 #define UI_STATE_KEY_SCREEN "last_screen"
@@ -1288,14 +1452,29 @@ static ui_screen_id_t ui_state_load_last_screen(void) {
     return (ui_screen_id_t)screen_id;
 }
 
+// Logs every screen change (diagnostic breadcrumb - lets a lockup/hang be
+// correlated with exactly which screen it happened on/near) and, for the
+// three swipeable gauge screens only, persists it as the boot-to screen.
+// Settings is intentionally not persisted - booting straight to a menu
+// instead of a gauge screen would be a worse default than always landing
+// on MainSpeedo/whatever gauge screen was last active.
 static void screen_loaded_cb(lv_event_t *e) {
     lv_obj_t *screen = lv_event_get_target(e);
-    uint8_t screen_id;
+    const char *screen_name;
+    bool persist = true;
+    uint8_t screen_id = 0;
 
-    if (screen == ui_MainSpeedo)     screen_id = UI_SCREEN_MAIN_SPEEDO;
-    else if (screen == ui_OtherData) screen_id = UI_SCREEN_OTHER_DATA;
-    else if (screen == ui_RPMAFR)    screen_id = UI_SCREEN_RPMAFR;
-    else return;
+    if (screen == ui_MainSpeedo)      { screen_name = "MainSpeedo"; screen_id = UI_SCREEN_MAIN_SPEEDO; }
+    else if (screen == ui_OtherData)  { screen_name = "OtherData";  screen_id = UI_SCREEN_OTHER_DATA; }
+    else if (screen == ui_RPMAFR)     { screen_name = "RPMAFR";     screen_id = UI_SCREEN_RPMAFR; }
+    else if (screen == ui_Settings)   { screen_name = "Settings";   persist = false; }
+    else                              { screen_name = "unknown";   persist = false; }
+
+    #if ENABLE_LOGS
+        ESP_LOGI("SCREEN", "-> %s", screen_name);
+    #endif
+
+    if (!persist) return;
 
     nvs_set_u8(ui_state_handle, UI_STATE_KEY_SCREEN, screen_id);
     nvs_commit(ui_state_handle);
@@ -1310,17 +1489,197 @@ static void boot_to_last_screen_cb(lv_timer_t *timer) {
 
     switch (ui_state_load_last_screen()) {
         case UI_SCREEN_OTHER_DATA:
-            _ui_screen_change(&ui_OtherData, LV_SCR_LOAD_ANIM_FADE_ON, 100, 0, &ui_OtherData_screen_init);
+            _ui_screen_change(&ui_OtherData, LV_SCREEN_LOAD_ANIM_FADE_ON, 100, 0, &ui_OtherData_screen_init);
             break;
         case UI_SCREEN_RPMAFR:
-            _ui_screen_change(&ui_RPMAFR, LV_SCR_LOAD_ANIM_FADE_ON, 100, 0, &ui_RPMAFR_screen_init);
+            _ui_screen_change(&ui_RPMAFR, LV_SCREEN_LOAD_ANIM_FADE_ON, 100, 0, &ui_RPMAFR_screen_init);
             break;
         default:
-            _ui_screen_change(&ui_MainSpeedo, LV_SCR_LOAD_ANIM_FADE_ON, 100, 0, &ui_MainSpeedo_screen_init);
+            _ui_screen_change(&ui_MainSpeedo, LV_SCREEN_LOAD_ANIM_FADE_ON, 100, 0, &ui_MainSpeedo_screen_init);
+            // g_demo_mode always starts false (see its declaration), so this
+            // always wants the real boot sweep at this point regardless.
             start_speedo_boot_sweep();
             break;
     }
 }
+
+//-------------------------SD card: crash-dump relay + debug log mirroring-------------------------//
+// No card-detect pin on this hardware (see CLAUDE.md's open hardware items), so
+// "mounted" is determined purely by bsp_sdcard_mount()'s return code - every
+// caller here must tolerate it failing (no card inserted, or a card fault) and
+// just skip the SD-dependent feature rather than block boot on it.
+#if SD_FEATURES_ENABLED
+#define DEBUG_LOG_PATH  BSP_SD_MOUNT_POINT "/dashrpm_debug.log"
+
+// Copies a pending flash core dump out to a uniquely-numbered file on the SD
+// card, then erases it from flash so it isn't copied again next boot. The
+// dump itself is captured to the dedicated "coredump" flash partition (see
+// partitions.csv) at crash time, not directly to SD - flash is always present
+// and doesn't depend on a card happening to be inserted, or on SDMMC/FATFS
+// being in a working state right after a crash. This function only runs the
+// one-time "relay it somewhere retrievable" step, well after boot succeeds.
+static void relay_coredump_to_sd(void) {
+    if (esp_core_dump_image_check() != ESP_OK) return;   // nothing pending
+
+    size_t addr = 0, size = 0;
+    if (esp_core_dump_image_get(&addr, &size) != ESP_OK || size == 0) return;
+
+    // Sequence number so successive crash dumps don't overwrite each other -
+    // stored in NVS since flash survives when the SD card doesn't.
+    uint32_t seq = 0;
+    nvs_handle_t nvs;
+    esp_err_t nvs_err = nvs_open("crashlog", NVS_READWRITE, &nvs);
+    if (nvs_err == ESP_OK) {
+        nvs_get_u32(nvs, "seq", &seq);
+        seq++;
+        esp_err_t set_err = nvs_set_u32(nvs, "seq", seq);
+        esp_err_t commit_err = nvs_commit(nvs);
+        nvs_close(nvs);
+        if (set_err != ESP_OK || commit_err != ESP_OK) {
+            ESP_LOGW("COREDUMP", "Failed to persist crash sequence number (set=%s commit=%s) - "
+                     "next dump may overwrite this one", esp_err_to_name(set_err), esp_err_to_name(commit_err));
+        }
+    } else {
+        ESP_LOGW("COREDUMP", "Failed to open crashlog NVS namespace (%s) - "
+                 "sequence number will reset to 1 and may overwrite an existing dump", esp_err_to_name(nvs_err));
+    }
+
+    char path[64];
+    snprintf(path, sizeof(path), BSP_SD_MOUNT_POINT "/coredump_%04lu.elf", (unsigned long)seq);
+
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        ESP_LOGW("COREDUMP", "Found a pending core dump but couldn't open %s to relay it", path);
+        return;
+    }
+
+    uint8_t buf[512];
+    size_t remaining = size;
+    bool ok = true;
+    while (remaining > 0) {
+        size_t chunk = remaining < sizeof(buf) ? remaining : sizeof(buf);
+        if (esp_flash_read(esp_flash_default_chip, buf, addr, chunk) != ESP_OK ||
+            fwrite(buf, 1, chunk, f) != chunk) {
+            ok = false;
+            break;
+        }
+        addr += chunk;
+        remaining -= chunk;
+    }
+    fclose(f);
+
+    if (ok) {
+        ESP_LOGW("COREDUMP", "Relayed a crash dump to %s", path);
+        esp_core_dump_image_erase();   // clear the flash slot now it's safely on SD
+    } else {
+        ESP_LOGW("COREDUMP", "Relay to %s failed partway through - leaving flash copy intact", path);
+        remove(path);
+    }
+}
+
+#if ENABLE_LOGS
+static FILE *s_debug_log_file = NULL;
+
+// Queue of formatted log lines, drained by debug_log_writer_task() below.
+// debug_log_tee_vprintf() runs synchronously on whatever task calls
+// ESP_LOGx - including taskLVGL itself, from LVGL event callbacks like
+// ChangeDemoMode()/screen_loaded_cb(). Doing the actual SD write there
+// directly (even throttled) blocks that task on the write for however long
+// it takes - confirmed on the bench as touch/swipe becoming unresponsive
+// for a long stretch (and, once, an apparent full lockup) right at the
+// moment a log line landed on the ~1s fsync() window. SD cards can stall
+// for hundreds of ms to seconds during internal wear-leveling/GC, and
+// there's no way to bound that from the caller's side - so instead the
+// hook only ever does a cheap, non-blocking queue push (drops the line if
+// the queue's full, rather than ever blocking the caller), and a dedicated
+// low-priority task owns all the actual file I/O.
+#define DEBUG_LOG_LINE_MAX   160
+#define DEBUG_LOG_QUEUE_DEPTH 32
+static QueueHandle_t s_debug_log_queue = NULL;
+
+// esp_log_set_vprintf() installs debug_log_tee_vprintf as the live log hook
+// and returns the previous one in the same call - there's an inherent window
+// on SMP where another task can already be inside the new hook before that
+// return value lands in s_original_vprintf below. Defaulting to plain libc
+// vprintf (instead of NULL) means a log line hitting that window still goes
+// out on the console instead of crashing on a NULL call.
+static vprintf_like_t s_original_vprintf = vprintf;
+
+// Tees every line that goes through the IDF log system (ESP_LOGx, plus IDF's
+// own internal logging) to both the normal UART console and the SD card
+// file, exactly mirroring what idf.py monitor shows. Never touches the SD
+// card itself (see s_debug_log_queue's comment) - just a non-blocking queue
+// push of the formatted line, so this is always cheap regardless of what
+// the writer task is doing.
+static int debug_log_tee_vprintf(const char *fmt, va_list args) {
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int ret = s_original_vprintf(fmt, args);
+    if (s_debug_log_queue) {
+        char line[DEBUG_LOG_LINE_MAX];
+        vsnprintf(line, sizeof(line), fmt, args_copy);
+        // 0 timeout: drop the line rather than ever block the calling task -
+        // losing an occasional debug line is fine, stalling taskLVGL (or any
+        // other task) on a full queue is not.
+        xQueueSend(s_debug_log_queue, line, 0);
+    }
+    va_end(args_copy);
+    return ret;
+}
+
+// Owns all SD file I/O for the debug log - the only place that ever calls
+// vfprintf()/fflush()/fsync() on s_debug_log_file, entirely off whatever
+// task actually logged (see debug_log_tee_vprintf()). Low priority: this is
+// a best-effort debug artifact, never something the rest of the app should
+// wait on.
+static void debug_log_writer_task(void *arg) {
+    char line[DEBUG_LOG_LINE_MAX];
+    int64_t last_flush_us = 0;
+
+    while (1) {
+        // Blocks here for up to 1s - either a line arrives (write it) or the
+        // wait times out (fall through to the periodic flush/sync check
+        // below regardless, so a quiet period still gets synced promptly).
+        if (xQueueReceive(s_debug_log_queue, line, pdMS_TO_TICKS(1000)) == pdTRUE) {
+            fputs(line, s_debug_log_file);
+        }
+
+        // fflush() alone isn't enough: it only pushes C stdio's buffer down
+        // to FATFS, not FATFS's own dirty sectors and directory entry (file
+        // size) out to the physical card. This file is never closed during
+        // normal operation (no clean-shutdown signal exists - same gap
+        // noted for the odometer in CLAUDE.md Sec.9), so without an
+        // explicit fsync() the card can show a 0-byte file even after many
+        // fflush()es - confirmed on the bench, file existed but was empty.
+        int64_t now_us = esp_timer_get_time();
+        if (now_us - last_flush_us >= 1000000) {
+            fflush(s_debug_log_file);
+            fsync(fileno(s_debug_log_file));
+            last_flush_us = now_us;
+        }
+    }
+}
+
+// Fresh log file each boot (overwrites the last one) - copy it off the card
+// between debug sessions if you want to keep history from more than one.
+static void debug_log_to_sd_init(void) {
+    s_debug_log_file = fopen(DEBUG_LOG_PATH, "w");
+    if (!s_debug_log_file) {
+        ESP_LOGW("DEBUGLOG", "Couldn't open %s - continuing without file logging", DEBUG_LOG_PATH);
+        return;
+    }
+    s_debug_log_queue = xQueueCreate(DEBUG_LOG_QUEUE_DEPTH, DEBUG_LOG_LINE_MAX);
+    if (!s_debug_log_queue) {
+        ESP_LOGW("DEBUGLOG", "Couldn't create log queue - continuing without file logging");
+        fclose(s_debug_log_file);
+        s_debug_log_file = NULL;
+        return;
+    }
+    xTaskCreatePinnedToCore(debug_log_writer_task, "debug_log_writer", 4096, NULL, 2, NULL, 0);
+    s_original_vprintf = esp_log_set_vprintf(debug_log_tee_vprintf);
+}
+#endif
+#endif // SD_FEATURES_ENABLED
 
 void app_main(void) {
     // Boot sequence: display/LVGL first, then hardware inputs, persistent
@@ -1352,6 +1711,25 @@ void app_main(void) {
     adc_global_init();
     odometer_init();
 
+    // SD card is best-effort - no card-detect pin, so a failed mount (no card,
+    // or a card fault) just means the two features below silently don't run.
+    #if SD_FEATURES_ENABLED
+        {
+            esp_err_t sd_err = bsp_sdcard_mount();
+            if (sd_err == ESP_OK) {
+                relay_coredump_to_sd();
+                #if ENABLE_LOGS
+                    debug_log_to_sd_init();
+                #endif
+            } else {
+                ESP_LOGW("SDCARD", "Mount failed (%s) - no card, wrong format, or card fault. "
+                         "Crash-dump relay and debug log-to-SD won't run this boot. "
+                         "Card must be FAT32/exFAT with an MBR partition table (not GPT).",
+                         esp_err_to_name(sd_err));
+            }
+        }
+    #endif
+
     // AFR power gate output - held low (disabled) until the RPM gate
     // qualifies (see update_afr_power_gate()).
     gpio_set_direction(AFR_ENABLE_GPIO, GPIO_MODE_OUTPUT);
@@ -1368,16 +1746,28 @@ void app_main(void) {
     rpm_pcnt_init();
 
     ui_init();
+    demo_badge_init();
     ui_state_init();
     lv_obj_add_event_cb(ui_MainSpeedo, screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     lv_obj_add_event_cb(ui_OtherData, screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
     lv_obj_add_event_cb(ui_RPMAFR, screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
+    lv_obj_add_event_cb(ui_Settings, screen_loaded_cb, LV_EVENT_SCREEN_LOADED, NULL);
+    // Screens are created once and persist (see _ui_screen_change() in
+    // ui_helpers.c - it only calls target_init() the first time), so
+    // ui_DemoSwitch is never recreated on revisit and needs no re-sync here.
+    lv_obj_add_event_cb(ui_DemoSwitch, demo_switch_value_changed_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_timer_create(gauge_timer, 10, NULL);
     lv_timer_create(boot_to_last_screen_cb, 2000, NULL);
 
 
     xTaskCreatePinnedToCore(save_miles_task, "save_miles_task", 4096, NULL, 4, NULL, 0);
+
+    // All four always run now - g_demo_mode (runtime, via ui_DemoSwitch) picks
+    // which one's writes actually reach g_gauge_data, not which tasks exist.
+    // See adc_task/gps_task/afr_task/demo_task for the per-field gating.
+    xTaskCreatePinnedToCore(demo_task, "demo_task", 4096, NULL, 5, NULL, 0);
+
     xTaskCreatePinnedToCore(adc_task, "adc_task", 4096, NULL, 5, NULL, 0);
 
     uart_init(GPS_UART_NUM, GPS_TX_PIN, GPS_RX_PIN, (GPS_BUF_SIZE*2), GPS_BAUD_RATE);

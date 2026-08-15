@@ -63,53 +63,12 @@ CONFIG_LV_FONT_MONTSERRAT_44=y
 CONFIG_LV_FONT_MONTSERRAT_48=y
 CONFIG_LV_FONT_FMT_TXT_LARGE=y
 CONFIG_LV_USE_FONT_COMPRESSED=y
-# Demos disabled (2026-08-15, see git log) - lv_conf.h's LV_BUILD_DEMOS=0
-# stops the demo .c files from compiling to anything (each self-guards with
-# #if LV_USE_DEMO_WIDGETS etc), but esp.cmake's demo source-file *gathering*
-# (file(GLOB...) + list(APPEND DEMO_SOURCES...)) is driven by these Kconfig
-# symbols directly, independent of lv_conf.h - leaving them =y here would
-# still feed the (now-empty) demo source files to the compiler for no
-# reason. This app has its own SquareLine UI and never calls lv_demo_*().
-# CONFIG_LV_USE_DEMO_WIDGETS is not set
-# CONFIG_LV_USE_DEMO_BENCHMARK is not set
-# CONFIG_LV_USE_DEMO_STRESS is not set
-# CONFIG_LV_USE_DEMO_MUSIC is not set
+CONFIG_LV_USE_DEMO_WIDGETS=y
+CONFIG_LV_USE_DEMO_BENCHMARK=y
+CONFIG_LV_USE_DEMO_STRESS=y
+CONFIG_LV_USE_DEMO_MUSIC=y
+CONFIG_LV_DEMO_MUSIC_AUTO_PLAY=y
 CONFIG_IDF_EXPERIMENTAL_FEATURES=y
 CONFIG_SPI_FLASH_SUPPORT_GD_CHIP=y
 CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="32MB"
-# Crash dumps captured to the dedicated "coredump" flash partition (see
-# partitions.csv) - reliable even if the SD card isn't inserted at crash time.
-# main.c relays any pending dump to a file on the SD card on the next boot.
-CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
-CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
-
-# Let bsp_sdcard_mount() format the card itself (FAT32 + MBR) if the initial
-# mount fails - avoids relying on the card already being formatted a way
-# ESP-IDF's FATFS/SDMMC stack can read (it can't parse GPT, only MBR).
-CONFIG_BSP_SD_FORMAT_ON_MOUNT_FAIL=y
-
-# Long filename support for the SD card FATFS volume. Default is
-# CONFIG_FATFS_LFN_NONE (8.3 short names only) - both "dashrpm_debug.log" and
-# relay_coredump_to_sd()'s "coredump_NNNN.elf" have >8 char name parts, so
-# fopen() on either fails with FR_INVALID_NAME under the default. HEAP (not
-# STACK) keeps the per-open LFN work buffer off whatever task's stack happens
-# to call fopen() - main_task here, but safer as the general default.
-CONFIG_FATFS_LFN_HEAP=y
-
-# LVGL's config now comes from main/lv_conf.h, not Kconfig (2026-08-15).
-# CONFIG_LV_CONF_SKIP=y is LVGL's own Kconfig default and means "ignore any
-# project lv_conf.h, use Kconfig-generated config instead" - that silently
-# made every edit to lv_conf.h a no-op for most of this project's history
-# (confirmed via readelf: a hand-edited LV_MEM_SIZE there had zero effect on
-# the linked binary). lv_conf.h has been fully rewritten against LVGL 9.5's
-# current template with every value matched to what was actually active via
-# Kconfig at the time of the switch, so this changes the *mechanism*
-# controlling LVGL config, not the tested behavior.
-# CONFIG_LV_CONF_SKIP is not set
-
-# Vestigial now that lv_conf.h defines LV_MEM_SIZE directly (its #ifndef
-# guard makes lv_conf.h win outright) - left set as a harmless matching
-# fallback in case lv_conf.h is ever bypassed again. See lv_conf.h's
-# LV_MEM_SIZE comment for the full incident history behind this value.
-CONFIG_LV_MEM_SIZE_KILOBYTES=200

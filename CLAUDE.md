@@ -584,3 +584,11 @@ These are product decisions, not hardware facts. **Ask before implementing.**
   currently-NC J3 pins (§2) on the carrier board and sense it with an internal pull-up
   on the ESP side.
 - PCBWay assembly scope for the 14 through-hole parts
+
+
+### Fixes from espressif
+regularly check to see if they have fixed issue around CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM
+https://github.com/espressif/esp-idf/issues/18488
+If it has should be able to use IRAM to make faster
+
+
